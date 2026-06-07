@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 248 250 252;
+  --foreground: 15 23 42;
+}
+
+@layer base {
+  * {
+    @apply border-ink-200;
+  }
+  html {
+    @apply antialiased;
+  }
+  body {
+    @apply bg-ink-50 text-ink-900;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+  ::selection {
+    @apply bg-brand-200 text-brand-950;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  .btn-primary {
+    @apply btn bg-brand-600 text-white shadow-sm hover:bg-brand-700 active:bg-brand-800;
+  }
+  .btn-secondary {
+    @apply btn border border-ink-200 bg-white text-ink-800 hover:bg-ink-50 active:bg-ink-100;
+  }
+  .btn-ghost {
+    @apply btn text-ink-600 hover:bg-ink-100 hover:text-ink-900;
+  }
+  .btn-danger {
+    @apply btn bg-rose-600 text-white hover:bg-rose-700 active:bg-rose-800;
+  }
+  .input {
+    @apply w-full rounded-xl border border-ink-200 bg-white px-3.5 py-2.5 text-sm text-ink-900 shadow-sm transition placeholder:text-ink-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200 disabled:bg-ink-50;
+  }
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-ink-700;
+  }
+  .card {
+    @apply rounded-2xl border border-ink-200 bg-white shadow-card;
+  }
+  .field-error {
+    @apply mt-1 text-xs font-medium text-rose-600;
+  }
+}
+
+/* Loading skeleton shimmer */
+.skeleton {
+  @apply relative overflow-hidden bg-ink-100;
+}
+.skeleton::after {
+  content: '';
+  @apply absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/60 to-transparent;
+  animation: shimmer 1.5s infinite;
+}
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Hide scrollbars for horizontal galleries while keeping scroll */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
