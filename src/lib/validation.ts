@@ -65,6 +65,41 @@ export const resetPasswordSchema = z.object({
   password: z.string().min(8, 'Password must be at least 8 characters'),
 });
 
+// ----------------------------------------------------------------------------
+// Agent profile
+// ----------------------------------------------------------------------------
+const phoneField = z
+  .string()
+  .trim()
+  .max(20, 'Too long')
+  .refine(
+    (v) => v === '' || /^[+]?[0-9\s-]{6,20}$/.test(v),
+    'Enter a valid phone number',
+  )
+  .default('');
+
+export const profileSchema = z.object({
+  full_name: z.string().trim().min(1, 'Enter your name').max(120, 'Too long'),
+  phone: phoneField,
+  whatsapp_number: phoneField,
+  email: z
+    .string()
+    .trim()
+    .max(160)
+    .refine((v) => v === '' || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v), 'Enter a valid email')
+    .default(''),
+  agency_name: z.string().trim().max(160, 'Too long').optional().default(''),
+  profile_photo_url: z
+    .string()
+    .trim()
+    .max(2048)
+    .refine((v) => v === '' || /^https?:\/\//.test(v), 'Must be a valid URL')
+    .optional()
+    .default(''),
+});
+
+export type ProfileInput = z.infer<typeof profileSchema>;
+
 /** Parse a comma/newline separated amenities string into a clean array. */
 export function parseAmenities(raw: string): string[] {
   return Array.from(

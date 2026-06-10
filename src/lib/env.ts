@@ -19,9 +19,11 @@ export const publicEnv = {
   supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? '',
   supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '',
   siteUrl: process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000',
-  contactPhone: process.env.NEXT_PUBLIC_CONTACT_PHONE ?? '',
-  contactEmail: process.env.NEXT_PUBLIC_CONTACT_EMAIL ?? '',
-  contactWhatsapp: process.env.NEXT_PUBLIC_CONTACT_WHATSAPP ?? '',
+  // NOTE: Per-agent contact details (phone / whatsapp / email) live in the
+  // `profiles` table and are sourced from the property owner's profile.
+  // They are intentionally NOT environment variables.
+  trialDays: Number(process.env.NEXT_PUBLIC_TRIAL_DAYS ?? '7') || 7,
+  appName: (process.env.NEXT_PUBLIC_APP_NAME ?? 'PropPilot').trim() || 'PropPilot',
 };
 
 /** Validated public env, used on the server where we want hard guarantees. */

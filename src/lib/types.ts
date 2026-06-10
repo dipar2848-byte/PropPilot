@@ -90,6 +90,19 @@ export type LandingPage = {
   updated_at: string;
 };
 
+export type Profile = {
+  id: string;
+  full_name: string;
+  phone: string;
+  whatsapp_number: string;
+  email: string;
+  agency_name: string | null;
+  profile_photo_url: string | null;
+  is_admin: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 export interface PropertyWithRelations extends Property {
   property_images: PropertyImage[];
   marketing_assets: MarketingAsset[] | null;
@@ -124,6 +137,14 @@ export interface PublicLandingData {
     short_description: string;
     whatsapp_message: string;
   } | null;
+  agent: {
+    full_name: string;
+    phone: string;
+    whatsapp_number: string;
+    email: string;
+    agency_name: string | null;
+    profile_photo_url: string | null;
+  } | null;
 }
 
 // ----------------------------------------------------------------------------
@@ -134,6 +155,12 @@ export interface PublicLandingData {
 export interface Database {
   public: {
     Tables: {
+      profiles: {
+        Row: Profile;
+        Insert: Partial<Profile> & { id: string };
+        Update: Partial<Profile>;
+        Relationships: [];
+      };
       properties: {
         Row: Property;
         Insert: Partial<Property> & { user_id: string; title: string };
