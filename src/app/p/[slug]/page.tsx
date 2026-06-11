@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { getPublicLanding } from '@/lib/data/landing';
 import { publicEnv } from '@/lib/env';
+import { APP_CONFIG } from '@/lib/config';
 import { PublicGallery } from '@/components/landing/PublicGallery';
 import { Logo } from '@/components/ui/Logo';
 import {
@@ -85,10 +86,11 @@ export default async function PublicLandingPage({
   const data = await getPublicLanding(slug);
   if (!data) notFound();
 
-  const { property, images, marketing } = data;
-  const phone = publicEnv.contactPhone;
-  const email = publicEnv.contactEmail;
-  const whatsapp = publicEnv.contactWhatsapp;
+  const { property, images, marketing, agent } = data;
+  const phone = agent?.phone ?? '';
+  const email = agent?.email ?? '';
+  const whatsapp = agent?.whatsapp_number ?? '';
+  const agentName = agent?.full_name ?? '';
   const description = marketing?.long_description || property.description;
 
   const waMessage =
@@ -209,6 +211,16 @@ export default async function PublicLandingPage({
               <p className="mt-1 text-sm text-ink-500">
                 Get in touch to schedule a viewing or ask a question.
               </p>
+              {agentName && (
+                <p className="mt-3 text-sm font-semibold text-ink-700">
+                  {agentName}
+                  {agent?.agency_name ? (
+                    <span className="block text-xs font-normal text-ink-400">
+                      {agent.agency_name}
+                    </span>
+                  ) : null}
+                </p>
+              )}
 
               <div className="mt-5 space-y-2.5">
                 {whatsapp && (
@@ -249,7 +261,7 @@ export default async function PublicLandingPage({
         <div className="mx-auto flex max-w-5xl flex-col items-center justify-between gap-2 px-5 py-6 sm:flex-row">
           <Logo />
           <p className="text-xs text-ink-400">
-            Powered by PropPilot · © {new Date().getFullYear()}
+            Powered by {APP_CONFIG.name} · © {new Date().getFullYear()}
           </p>
         </div>
       </footer>

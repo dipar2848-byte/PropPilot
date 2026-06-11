@@ -10,8 +10,10 @@ import {
   GlobeIcon,
   SearchIcon,
   PlusIcon,
+  SettingsIcon,
 } from '@/components/ui/Icons';
 import { cn } from '@/lib/utils';
+import { APP_CONFIG } from '@/lib/config';
 
 const nav = [
   { href: '/dashboard', label: 'Dashboard', icon: HomeIcon, exact: true },
@@ -19,6 +21,7 @@ const nav = [
   { href: '/search', label: 'Search', icon: SearchIcon },
   { href: '/marketing', label: 'Marketing Kits', icon: SparklesIcon },
   { href: '/landing-pages', label: 'Landing Pages', icon: GlobeIcon },
+  { href: '/settings', label: 'Settings', icon: SettingsIcon },
 ];
 
 export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
@@ -71,7 +74,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
 
       <div className="border-t border-ink-200 p-4">
         <p className="px-2 text-xs text-ink-400">
-          PropPilot · v1.0
+          {APP_CONFIG.name} · v1.0
         </p>
       </div>
     </div>

@@ -72,7 +72,7 @@ export async function signUpAction(
     password: parsed.data.password,
     options: {
       data: { full_name: parsed.data.fullName },
-      emailRedirectTo: `${publicEnv.siteUrl}/auth/callback?next=/dashboard`,
+      emailRedirectTo: `${publicEnv.siteUrl}/auth/callback?next=/onboarding`,
     },
   });
 
@@ -83,7 +83,7 @@ export async function signUpAction(
   // If email confirmation is disabled the user is signed in immediately.
   if (data.session) {
     revalidatePath('/', 'layout');
-    redirect('/dashboard');
+    redirect('/onboarding');
   }
 
   return {
