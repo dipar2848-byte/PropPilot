@@ -8,7 +8,7 @@ const PUBLIC_PREFIXES = [
   '/forgot-password',
   '/reset-password',
   '/auth',
-  '/p/', // public landing pages
+  '/p/',
 ];
 
 const PUBLIC_EXACT = ['/', '/manifest.webmanifest', '/sw.js', '/offline'];
@@ -21,12 +21,6 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
-/**
- * Refreshes the Supabase session on every request and enforces route
- * protection. Unauthenticated users hitting protected routes are redirected
- * to /login (with a redirect-back param). Authenticated users on auth pages
- * are sent to the dashboard.
- */
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
 
@@ -38,15 +32,11 @@ export async function updateSession(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
+
         setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
-  cookiesToSet.forEach(({ name, value, options }) => {
-    response.cookies.set(name, value, options);
-  });
-}
-          response = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options),
-          );
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options);
+          });
         },
       },
     },
@@ -58,7 +48,7 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
-  // Redirect authenticated users away from auth screens.
+  // Redirect logged-in users away from auth pages
   if (
     user &&
     (pathname === '/login' ||
@@ -71,7 +61,7 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Protect everything that isn't explicitly public.
+  // Protect private routes
   if (!user && !isPublicPath(pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
