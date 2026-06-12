@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getProperty } from '@/lib/data/properties';
+import { getPropertyLeadCounts } from '@/lib/data/leads';
 import { PageHeader } from '@/components/dashboard/PageHeader';
 import { PropertyGallery } from '@/components/properties/PropertyGallery';
 import { PropertyActions } from '@/components/properties/PropertyActions';
@@ -14,6 +15,7 @@ import {
   PinIcon,
   SparklesIcon,
   GlobeIcon,
+  UserIcon,
 } from '@/components/ui/Icons';
 import {
   formatPrice,
@@ -53,6 +55,8 @@ export default async function PropertyDetailPage({
   const { id } = await params;
   const property = await getProperty(id);
   if (!property) notFound();
+
+  const leadCounts = await getPropertyLeadCounts(id);
 
   return (
     <div>
@@ -179,6 +183,25 @@ export default async function PropertyDetailPage({
                 View public page ↗
               </a>
             )}
+          </div>
+
+          <div className="card p-5">
+            <div className="flex items-center gap-2">
+              <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-50 text-brand-600">
+                <UserIcon className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-ink-900">Leads</p>
+                <p className="text-xs text-ink-400">
+                  {leadCounts.total === 0
+                    ? 'No leads yet'
+                    : `${leadCounts.total} total · ${leadCounts.new} new`}
+                </p>
+              </div>
+            </div>
+            <Link href={`/properties/${id}/leads`} className="btn-secondary mt-4 w-full">
+              View leads
+            </Link>
           </div>
         </div>
       </div>
