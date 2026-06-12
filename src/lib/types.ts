@@ -90,6 +90,22 @@ export type LandingPage = {
   updated_at: string;
 };
 
+export const LEAD_STATUSES = ['new', 'contacted', 'closed'] as const;
+export type LeadStatus = (typeof LEAD_STATUSES)[number];
+
+export type Lead = {
+  id: string;
+  property_id: string;
+  user_id: string;
+  name: string;
+  phone: string;
+  message: string;
+  status: LeadStatus;
+  source: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Profile = {
   id: string;
   full_name: string;
@@ -161,6 +177,25 @@ export interface Database {
         Update: Partial<Profile>;
         Relationships: [];
       };
+      leads: {
+        Row: Lead;
+        Insert: Partial<Lead> & {
+          property_id: string;
+          user_id: string;
+          name: string;
+          phone: string;
+        };
+        Update: Partial<Lead>;
+        Relationships: [
+          {
+            foreignKeyName: 'leads_property_id_fkey';
+            columns: ['property_id'];
+            isOneToOne: false;
+            referencedRelation: 'properties';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       properties: {
         Row: Property;
         Insert: Partial<Property> & { user_id: string; title: string };
@@ -227,10 +262,20 @@ export interface Database {
         Args: { p_slug: string };
         Returns: PublicLandingData | null;
       };
+      submit_public_lead: {
+        Args: {
+          p_slug: string;
+          p_name: string;
+          p_phone: string;
+          p_message: string;
+        };
+        Returns: string;
+      };
     };
     Enums: {
       property_status: PropertyStatus;
       property_type: PropertyType;
+      lead_status: LeadStatus;
     };
     CompositeTypes: Record<never, never>;
   };

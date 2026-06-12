@@ -100,6 +100,30 @@ export const profileSchema = z.object({
 
 export type ProfileInput = z.infer<typeof profileSchema>;
 
+// ----------------------------------------------------------------------------
+// Leads
+// ----------------------------------------------------------------------------
+export const publicLeadSchema = z.object({
+  slug: z.string().trim().min(1).max(120),
+  name: z.string().trim().min(1, 'Enter your name').max(120, 'Name is too long'),
+  phone: z
+    .string()
+    .trim()
+    .min(6, 'Enter a valid phone number')
+    .max(20, 'Phone number is too long')
+    .refine((v) => /^[+]?[0-9\s-]{6,20}$/.test(v), 'Enter a valid phone number'),
+  message: z.string().trim().max(2000, 'Message is too long').optional().default(''),
+  // Honeypot — must remain empty. Bots tend to fill every field.
+  company: z.string().max(0).optional().default(''),
+});
+
+export type PublicLeadInput = z.infer<typeof publicLeadSchema>;
+
+export const leadStatusSchema = z.object({
+  leadId: z.string().uuid('Invalid lead'),
+  status: z.enum(['new', 'contacted', 'closed']),
+});
+
 /** Parse a comma/newline separated amenities string into a clean array. */
 export function parseAmenities(raw: string): string[] {
   return Array.from(

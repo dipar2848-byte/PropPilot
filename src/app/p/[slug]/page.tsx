@@ -4,6 +4,7 @@ import { getPublicLanding } from '@/lib/data/landing';
 import { publicEnv } from '@/lib/env';
 import { APP_CONFIG } from '@/lib/config';
 import { PublicGallery } from '@/components/landing/PublicGallery';
+import { LeadForm } from '@/components/landing/LeadForm';
 import { Logo } from '@/components/ui/Logo';
 import {
   BedIcon,
@@ -19,7 +20,6 @@ import {
   formatArea,
   propertyTypeLabel,
   truncate,
-  whatsappLink,
 } from '@/lib/utils';
 
 export const revalidate = 60;
@@ -92,6 +92,8 @@ export default async function PublicLandingPage({
   const whatsapp = agent?.whatsapp_number ?? '';
   const agentName = agent?.full_name ?? '';
   const description = marketing?.long_description || property.description;
+  // Lead capture is disabled for listings that are no longer available.
+  const leadCaptureDisabled = ['archived', 'sold', 'rented'].includes(property.status);
 
   const waMessage =
     marketing?.whatsapp_message ||
@@ -127,11 +129,9 @@ export default async function PublicLandingPage({
       <header className="sticky top-0 z-30 border-b border-ink-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-3">
           <Logo />
-          {whatsapp && (
+          {whatsapp && !leadCaptureDisabled && (
             <a
-              href={whatsappLink(whatsapp, waMessage)}
-              target="_blank"
-              rel="noopener noreferrer"
+              href="#enquire"
               className="btn inline-flex bg-[#25D366] px-3 py-2 text-sm text-white hover:bg-[#1ebe5d]"
             >
               <WhatsAppIcon className="h-4 w-4" /> Enquire
@@ -205,8 +205,13 @@ export default async function PublicLandingPage({
           </div>
 
           {/* Contact CTA */}
-          <aside className="lg:sticky lg:top-20 lg:self-start">
+          <aside id="enquire" className="lg:sticky lg:top-20 lg:self-start">
             <div className="card p-6">
+              {leadCaptureDisabled && (
+                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-center text-xs font-medium text-amber-800">
+                  This property is no longer available.
+                </div>
+              )}
               <h2 className="text-lg font-bold text-ink-900">Interested?</h2>
               <p className="mt-1 text-sm text-ink-500">
                 Get in touch to schedule a viewing or ask a question.
@@ -222,36 +227,32 @@ export default async function PublicLandingPage({
                 </p>
               )}
 
-              <div className="mt-5 space-y-2.5">
-                {whatsapp && (
-                  <a
-                    href={whatsappLink(whatsapp, waMessage)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn w-full bg-[#25D366] text-white hover:bg-[#1ebe5d]"
-                  >
-                    <WhatsAppIcon className="h-5 w-5" /> Message on WhatsApp
-                  </a>
-                )}
-                {phone && (
-                  <a href={`tel:${phone}`} className="btn-primary w-full">
-                    <PhoneIcon className="h-5 w-5" /> Call {phone}
-                  </a>
-                )}
-                {email && (
-                  <a
-                    href={`mailto:${email}?subject=${encodeURIComponent(`Enquiry: ${property.title}`)}`}
-                    className="btn-secondary w-full"
-                  >
-                    <MailIcon className="h-5 w-5" /> Email us
-                  </a>
-                )}
-                {!phone && !email && !whatsapp && (
-                  <p className="rounded-xl bg-ink-50 p-3 text-center text-sm text-ink-400">
-                    Contact details coming soon.
-                  </p>
-                )}
+              <div className="mt-5">
+                <LeadForm
+                  slug={slug}
+                  whatsappNumber={whatsapp}
+                  whatsappMessage={waMessage}
+                  disabled={leadCaptureDisabled}
+                />
               </div>
+
+              {(phone || email) && (
+                <div className="mt-4 space-y-2.5 border-t border-ink-100 pt-4">
+                  {phone && (
+                    <a href={`tel:${phone}`} className="btn-secondary w-full">
+                      <PhoneIcon className="h-5 w-5" /> Call {phone}
+                    </a>
+                  )}
+                  {email && (
+                    <a
+                      href={`mailto:${email}?subject=${encodeURIComponent(`Enquiry: ${property.title}`)}`}
+                      className="btn-secondary w-full"
+                    >
+                      <MailIcon className="h-5 w-5" /> Email us
+                    </a>
+                  )}
+                </div>
+              )}
             </div>
           </aside>
         </div>
