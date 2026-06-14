@@ -34,7 +34,8 @@ export default async function LandingPagesPage() {
       ) : (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {items.map(({ landing, property, cover_url }) => {
-            const url = `${publicEnv.siteUrl}/p/${landing.slug}`;
+            const hasValidSlug = !!landing.slug && landing.slug.trim() !== '';
+            const url = hasValidSlug ? `${publicEnv.siteUrl}/p/${landing.slug}` : '';
             return (
               <div key={landing.id} className="card overflow-hidden">
                 <div className="relative aspect-[16/10] bg-ink-100">
@@ -74,9 +75,9 @@ export default async function LandingPagesPage() {
 
                   <div className="mt-3 flex items-center gap-2">
                     <code className="flex-1 truncate rounded-lg bg-ink-50 px-2 py-1.5 text-xs text-ink-600">
-                      /p/{landing.slug}
+                      {hasValidSlug ? `/p/${landing.slug}` : 'No public address — re-publish'}
                     </code>
-                    <CopyButton text={url} label="" />
+                    {hasValidSlug && <CopyButton text={url} label="" />}
                   </div>
 
                   <div className="mt-3 flex gap-2">
@@ -86,7 +87,7 @@ export default async function LandingPagesPage() {
                     >
                       Manage
                     </Link>
-                    {landing.is_published && (
+                    {landing.is_published && hasValidSlug && (
                       <a
                         href={`/p/${landing.slug}`}
                         target="_blank"

@@ -140,3 +140,25 @@ export function whatsappLink(phone: string, message: string): string {
   const digits = phone.replace(/[^0-9]/g, '');
   return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
 }
+
+export function formatBytes(bytes: number | null | undefined): string {
+  const n = Number(bytes ?? 0);
+  if (!n || n <= 0) return '0 KB';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.min(Math.floor(Math.log(n) / Math.log(1024)), units.length - 1);
+  const value = n / Math.pow(1024, i);
+  return `${value >= 10 || i === 0 ? Math.round(value) : value.toFixed(1)} ${units[i]}`;
+}
+
+const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  agreement: 'Agreement',
+  floor_plan: 'Floor plan',
+  brochure: 'Brochure',
+  legal: 'Legal',
+  identity: 'Identity',
+  other: 'Other',
+};
+
+export function documentTypeLabel(type: string): string {
+  return DOCUMENT_TYPE_LABELS[type] ?? 'Other';
+}

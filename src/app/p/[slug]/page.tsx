@@ -95,12 +95,6 @@ export default async function PublicLandingPage({
   // Lead capture is disabled for listings that are no longer available.
   const leadCaptureDisabled = ['archived', 'sold', 'rented'].includes(property.status);
 
-  const waMessage =
-    marketing?.whatsapp_message ||
-    `Hi, I'm interested in "${property.title}"${
-      property.location ? ` in ${property.location}` : ''
-    }. Could you share more details?`;
-
   // JSON-LD structured data for SEO.
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -230,8 +224,8 @@ export default async function PublicLandingPage({
               <div className="mt-5">
                 <LeadForm
                   slug={slug}
+                  propertyTitle={property.title}
                   whatsappNumber={whatsapp}
-                  whatsappMessage={waMessage}
                   disabled={leadCaptureDisabled}
                 />
               </div>

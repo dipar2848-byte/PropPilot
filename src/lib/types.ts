@@ -106,6 +106,64 @@ export type Lead = {
   updated_at: string;
 };
 
+export const DOCUMENT_TYPES = [
+  'agreement',
+  'floor_plan',
+  'brochure',
+  'legal',
+  'identity',
+  'other',
+] as const;
+export type DocumentType = (typeof DOCUMENT_TYPES)[number];
+
+export const DOCUMENT_ACCESS_ACTIONS = ['upload', 'preview', 'download', 'delete'] as const;
+export type DocumentAccessAction = (typeof DOCUMENT_ACCESS_ACTIONS)[number];
+
+export type PropertyDocument = {
+  id: string;
+  property_id: string;
+  user_id: string;
+  file_name: string;
+  file_url: string; // storage object path (NOT a public URL)
+  document_type: DocumentType;
+  file_size: number;
+  title: string;
+  mime_type: string;
+  uploaded_at: string;
+  updated_at: string;
+};
+
+export type DocumentAccessLog = {
+  id: string;
+  document_id: string | null;
+  property_id: string | null;
+  user_id: string;
+  action: DocumentAccessAction;
+  file_name: string;
+  created_at: string;
+};
+
+export const COMMISSION_TYPES = ['percentage', 'fixed'] as const;
+export type CommissionType = (typeof COMMISSION_TYPES)[number];
+
+export type PropertyPrivateDetails = {
+  id: string;
+  property_id: string;
+  user_id: string;
+  owner_name: string;
+  owner_phone: string;
+  owner_email: string;
+  alternate_contact: string;
+  commission_type: CommissionType;
+  commission_percentage: number | null;
+  commission_amount: number | null;
+  expected_commission: number | null;
+  deal_stage: string;
+  internal_notes: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Profile = {
   id: string;
   full_name: string;
@@ -196,6 +254,50 @@ export interface Database {
           },
         ];
       };
+      property_documents: {
+        Row: PropertyDocument;
+        Insert: Partial<PropertyDocument> & {
+          property_id: string;
+          user_id: string;
+          file_name: string;
+        };
+        Update: Partial<PropertyDocument>;
+        Relationships: [
+          {
+            foreignKeyName: 'property_documents_property_id_fkey';
+            columns: ['property_id'];
+            isOneToOne: false;
+            referencedRelation: 'properties';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      property_private_details: {
+        Row: PropertyPrivateDetails;
+        Insert: Partial<PropertyPrivateDetails> & {
+          property_id: string;
+          user_id: string;
+        };
+        Update: Partial<PropertyPrivateDetails>;
+        Relationships: [
+          {
+            foreignKeyName: 'property_private_details_property_id_fkey';
+            columns: ['property_id'];
+            isOneToOne: true;
+            referencedRelation: 'properties';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      document_access_log: {
+        Row: DocumentAccessLog;
+        Insert: Partial<DocumentAccessLog> & {
+          user_id: string;
+          action: DocumentAccessAction;
+        };
+        Update: Partial<DocumentAccessLog>;
+        Relationships: [];
+      };
       properties: {
         Row: Property;
         Insert: Partial<Property> & { user_id: string; title: string };
@@ -276,6 +378,9 @@ export interface Database {
       property_status: PropertyStatus;
       property_type: PropertyType;
       lead_status: LeadStatus;
+      document_type: DocumentType;
+      document_access_action: DocumentAccessAction;
+      commission_type: CommissionType;
     };
     CompositeTypes: Record<never, never>;
   };

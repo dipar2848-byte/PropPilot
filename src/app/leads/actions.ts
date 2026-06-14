@@ -11,6 +11,13 @@ export interface PublicLeadState {
   ok?: boolean;
   error?: string;
   fieldErrors?: Record<string, string>;
+  /** Echoed-back submitted values so the client can build the WhatsApp
+   * click-to-chat message from the user's OWN input (never auto-detected). */
+  lead?: {
+    name: string;
+    phone: string;
+    message: string;
+  };
 }
 
 function flattenZod(error: import('zod').ZodError): Record<string, string> {
@@ -58,7 +65,7 @@ export async function submitPublicLeadAction(
 
   // Honeypot tripped — pretend success so bots don't learn anything.
   if (parsed.data.company && parsed.data.company.length > 0) {
-    return { ok: true };
+    return { ok: true, lead: { name: '', phone: '', message: '' } };
   }
 
   // Rate limit by IP: max 5 submissions/minute, and by slug to throttle a
@@ -82,10 +89,21 @@ export async function submitPublicLeadAction(
   });
 
   if (error) {
+    // Step 2 guarantee: if saving fails, STOP the flow completely (no success,
+    // no WhatsApp hand-off).
     return { error: 'We could not submit your inquiry. Please try again.' };
   }
 
-  return { ok: true };
+  // Lead persisted. Echo the user's submitted values so the success screen can
+  // build a click-to-chat WhatsApp link from THEIR input.
+  return {
+    ok: true,
+    lead: {
+      name: parsed.data.name,
+      phone: parsed.data.phone,
+      message: parsed.data.message ?? '',
+    },
+  };
 }
 
 export interface LeadActionState {
