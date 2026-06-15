@@ -339,6 +339,17 @@ export async function generateMarketingAction(
 export interface LandingActionState {
   error?: string;
   slug?: string;
+  isPublished?: boolean;
+}
+
+/** Revalidate every surface that reads landing-page publication state so the
+ * dashboard, the per-property landing manager and the public page never
+ * disagree about whether a page is live. */
+function revalidateLanding(propertyId: string) {
+  revalidatePath('/dashboard');
+  revalidatePath('/landing-pages');
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath(`/properties/${propertyId}/landing`);
 }
 
 export async function publishLandingAction(propertyId: string): Promise<LandingActionState> {
@@ -354,47 +365,70 @@ export async function publishLandingAction(propertyId: string): Promise<LandingA
 
   const { data: existing } = await supabase
     .from('landing_pages')
-    .select('*')
+    .select('id, slug')
     .eq('property_id', propertyId)
+    .eq('user_id', user.id)
     .maybeSingle();
 
   if (existing) {
-    await supabase
+    // Guard: a legacy row could be missing its slug. Backfill before publishing
+    // so we never expose a "/p/undefined" link.
+    let slug = existing.slug;
+    if (!slug || slug.trim() === '') {
+      slug = buildSlug(property.title);
+    }
+    const { data: updated, error: updErr } = await supabase
       .from('landing_pages')
-      .update({ is_published: true })
+      .update({
+        is_published: true,
+        slug,
+        public_url: `${publicEnv.siteUrl}/p/${slug}`,
+      })
       .eq('id', existing.id)
-      .eq('user_id', user.id);
-    revalidatePath('/dashboard');
-    revalidatePath('/landing-pages');
-    revalidatePath(`/properties/${propertyId}`);
-    return { slug: existing.slug };
+      .eq('user_id', user.id)
+      .select('slug, is_published')
+      .single();
+    if (updErr || !updated?.slug) {
+      return { error: updErr?.message ?? 'Could not publish landing page.' };
+    }
+    revalidateLanding(propertyId);
+    return { slug: updated.slug, isPublished: updated.is_published };
   }
 
   const slug = buildSlug(property.title);
   const publicUrl = `${publicEnv.siteUrl}/p/${slug}`;
 
-  const { error } = await supabase.from('landing_pages').insert({
-    property_id: propertyId,
-    user_id: user.id,
-    slug,
-    public_url: publicUrl,
-    is_published: true,
-  });
-  if (error) return { error: error.message };
+  const { data: inserted, error } = await supabase
+    .from('landing_pages')
+    .insert({
+      property_id: propertyId,
+      user_id: user.id,
+      slug,
+      public_url: publicUrl,
+      is_published: true,
+    })
+    .select('slug, is_published')
+    .single();
+  if (error || !inserted?.slug) {
+    return { error: error?.message ?? 'Could not create landing page.' };
+  }
 
-  revalidatePath('/dashboard');
-  revalidatePath('/landing-pages');
-  revalidatePath(`/properties/${propertyId}`);
-  return { slug };
+  revalidateLanding(propertyId);
+  return { slug: inserted.slug, isPublished: inserted.is_published };
 }
 
-export async function unpublishLandingAction(propertyId: string): Promise<void> {
+export async function unpublishLandingAction(
+  propertyId: string,
+): Promise<LandingActionState> {
   const { supabase, user } = await requireUser();
-  await supabase
+  const { data, error } = await supabase
     .from('landing_pages')
     .update({ is_published: false })
     .eq('property_id', propertyId)
-    .eq('user_id', user.id);
-  revalidatePath('/landing-pages');
-  revalidatePath(`/properties/${propertyId}`);
+    .eq('user_id', user.id)
+    .select('slug, is_published')
+    .maybeSingle();
+  if (error) return { error: error.message };
+  revalidateLanding(propertyId);
+  return { slug: data?.slug, isPublished: data?.is_published ?? false };
 }

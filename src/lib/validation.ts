@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PROPERTY_TYPES, PROPERTY_STATUSES } from '@/lib/types';
+import { PROPERTY_TYPES, PROPERTY_STATUSES, DOCUMENT_TYPES, COMMISSION_TYPES } from '@/lib/types';
 
 const numberFromInput = z
   .union([z.string(), z.number()])
@@ -123,6 +123,42 @@ export const leadStatusSchema = z.object({
   leadId: z.string().uuid('Invalid lead'),
   status: z.enum(['new', 'contacted', 'closed']),
 });
+
+export const documentUploadSchema = z.object({
+  propertyId: z.string().uuid('Invalid property'),
+  title: z.string().trim().max(160, 'Title is too long').optional().default(''),
+  document_type: z.enum(DOCUMENT_TYPES).default('other'),
+});
+
+export type DocumentUploadInput = z.infer<typeof documentUploadSchema>;
+
+const optionalMoney = z
+  .union([z.string(), z.number()])
+  .transform((v) => (typeof v === 'string' ? v.trim() : v))
+  .transform((v) => (v === '' || v === null || v === undefined ? null : Number(v)))
+  .refine((v) => v === null || (!Number.isNaN(v) && v >= 0), { message: 'Must be a non-negative number' });
+
+export const privateDetailsSchema = z.object({
+  propertyId: z.string().uuid('Invalid property'),
+  owner_name: z.string().trim().max(160, 'Too long').optional().default(''),
+  owner_phone: z.string().trim().max(20, 'Too long').optional().default(''),
+  owner_email: z
+    .string()
+    .trim()
+    .max(160, 'Too long')
+    .optional()
+    .default('')
+    .refine((v) => v === '' || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v), 'Enter a valid email'),
+  alternate_contact: z.string().trim().max(160, 'Too long').optional().default(''),
+  commission_type: z.enum(COMMISSION_TYPES).default('percentage'),
+  commission_percentage: optionalMoney,
+  commission_amount: optionalMoney,
+  expected_commission: optionalMoney,
+  deal_stage: z.string().trim().max(80, 'Too long').optional().default(''),
+  internal_notes: z.string().trim().max(8000, 'Notes are too long').optional().default(''),
+});
+
+export type PrivateDetailsInput = z.infer<typeof privateDetailsSchema>;
 
 /** Parse a comma/newline separated amenities string into a clean array. */
 export function parseAmenities(raw: string): string[] {

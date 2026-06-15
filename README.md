@@ -23,8 +23,10 @@ Built with **Next.js 15 (App Router)**, **TypeScript**, **Tailwind CSS**, and
 | **Real search** | Full database search across title/location with type, status, bedrooms, and price-range filters. |
 | **AI Marketing Kit** | One click generates a long description, short description, Instagram caption, Facebook post, LinkedIn post, and WhatsApp message. Pluggable provider abstraction (Template / OpenAI / Anthropic / Gemini) — swap with a single env var. **Works with zero config** via the built-in deterministic template engine. |
 | **Agent profiles** *(Phase 1)* | Each agent has a `profiles` row (full name, phone, WhatsApp, email, agency, photo). Landing pages source contact details from the **property owner's profile** — never from environment variables. Onboarding profile-completion screen + dashboard Settings page. |
-| **Lead capture & management** *(Phase 2)* | Public landing pages capture leads (name, phone, message) and **persist them to the database BEFORE the WhatsApp hand-off**. Honeypot + server-side rate limiting. Per-property lead dashboard with summary counts, search by name/phone, status filter, and mobile-first lead cards (Call / WhatsApp / Mark Contacted / Mark Closed). |
-| **Public landing pages** | SEO + Open Graph optimized, JSON-LD `RealEstateListing` structured data, image gallery, lead form, and a WhatsApp CTA. Served to anonymous visitors via a `SECURITY DEFINER` RPC so private rows stay locked down. |
+| **Lead capture & WhatsApp click-to-chat** *(Phase 2 + Phase 3)* | Public landing pages capture leads (name, phone, optional message) and **persist them to the database BEFORE any WhatsApp hand-off**. Strict **2-step flow**: (1) submit → save to DB; (2) success screen with a **"Continue on WhatsApp"** button that opens `wa.me` **click-to-chat only on click** (no auto-redirect, no phone auto-detection). The message is built from the user's own input + property title, with a copy-to-clipboard / manual-link fallback. **No Meta / WhatsApp Business API, no webhooks, no server-side messaging.** Per-property lead dashboard with counts, search and status filters. |
+| **Document Vault** *(Phase 3)* | Up to **5 private documents per property** (PDF / JPG / PNG / WEBP, **25 MB** max). Stored in a **non-public** Supabase bucket; never exposed via public URLs — every preview/download uses a **short-lived signed URL** minted server-side after an ownership check. Upload / preview / download / delete, all **audit-logged**. |
+| **Private Details** *(Phase 3)* | A strictly **internal-only** tab per property: real owner contact, commission terms (percentage/fixed, expected commission), deal stage and private notes. **Never** exposed on public landing pages, the `get_public_landing` RPC, the AI kit, or any public API. Owner-only via RLS. |
+| **Public landing pages** | SEO + Open Graph optimized, JSON-LD `RealEstateListing` structured data, image gallery, lead form, and a WhatsApp CTA. Served to anonymous visitors via a `SECURITY DEFINER` RPC that returns **only** public fields — never documents or private details. |
 | **Centralized branding** | A single `APP_CONFIG` (`src/lib/config.ts`) drives the product name everywhere (metadata, dashboard, landing pages, PWA). Rebrand by changing one value / `NEXT_PUBLIC_APP_NAME`. |
 | **PWA** | Web app manifest, service worker (network-first navigation, stale-while-revalidate assets), offline fallback page, generated icons, and an install prompt. |
 | **Performance & security** | React Server Components, Server Actions, Zod validation, in-memory rate limiting, security headers, and strict route protection. |
@@ -55,6 +57,8 @@ Built with **Next.js 15 (App Router)**, **TypeScript**, **Tailwind CSS**, and
    - `supabase/migrations/0005_landing_agent_contact.sql`
    - `supabase/migrations/0006_leads.sql`
    - `supabase/migrations/0007_reconcile_property_images.sql`
+   - `supabase/migrations/0008_documents.sql`
+   - `supabase/migrations/0009_private_details.sql`
 3. **Copy `.env.example` → `.env.local`** and fill in your Supabase URL/keys
    (see [Environment Variables](#-environment-variables)). Agent contact details
    are entered in-app (Settings → Profile), **not** via env vars.
@@ -120,6 +124,8 @@ Open **SQL Editor** in your Supabase dashboard and run each file in order:
 | `0005_landing_agent_contact.sql` *(Phase 1)* | Replaces `get_public_landing` so landing pages return the owner's agent contact details from `profiles`. |
 | `0006_leads.sql` *(Phase 2)* | Creates the `lead_status` enum + `leads` table with **owner-only RLS**, and the `submit_public_lead(...)` `SECURITY DEFINER` RPC for spam-safe anonymous lead capture (anonymous users never get direct table access). |
 | `0007_reconcile_property_images.sql` *(Phase 2 fix)* | **Idempotent** reconciliation that brings legacy databases in line with the code: renames `property_images.url` → `image_url` if needed, and adds missing `storage_path` / `is_cover` columns + indexes. No-op on already-correct schemas. |
+| `0008_documents.sql` *(Phase 3)* | Creates the `document_type` + `document_access_action` enums, the `property_documents` table, the append-only `document_access_log` audit table (both **owner-only RLS**), and the **private** `property-documents` storage bucket (25 MB, PDF/JPG/PNG/WEBP) with owner-only storage policies and **no public read**. |
+| `0009_private_details.sql` *(Phase 3)* | Creates the `commission_type` enum and the `property_private_details` table (one row per property, **owner-only RLS**). This data is never exposed publicly. |
 
 ### 2. Auth configuration
 
@@ -172,7 +178,9 @@ That's it. No build configuration or custom commands are required.
 │       ├── 0004_profiles.sql              # Agent profiles + RLS (Phase 1)
 │       ├── 0005_landing_agent_contact.sql # Landing RPC v2 w/ agent contact
 │       ├── 0006_leads.sql                 # Leads table + public RPC (Phase 2)
-│       └── 0007_reconcile_property_images.sql # Schema reconciliation fix
+│       ├── 0007_reconcile_property_images.sql # Schema reconciliation fix
+│       ├── 0008_documents.sql             # Document vault + audit log (Phase 3)
+│       └── 0009_private_details.sql       # Private property details (Phase 3)
 ├── src/
 │   ├── middleware.ts         # Route protection entry
 │   ├── app/
@@ -247,14 +255,24 @@ npm run type-check   # TypeScript (tsc --noEmit)
 ## 🔒 Security Notes
 
 - **RLS everywhere** — `properties`, `property_images`, `marketing_assets`,
-  `landing_pages`, `profiles` and `leads` all enforce owner-only access.
+  `landing_pages`, `profiles`, `leads`, `property_documents`,
+  `document_access_log` and `property_private_details` all enforce owner-only
+  access. No cross-tenant access is possible.
 - **Public data is opt-in** — only published landing pages are readable by
   anonymous users, and anonymous lead submission goes through a
-  `SECURITY DEFINER` RPC; neither exposes private rows.
+  `SECURITY DEFINER` RPC; neither exposes private rows. The RPC returns only
+  public fields — **never documents or private details**.
+- **Private documents** — stored in a non-public bucket; never served via public
+  URLs. Every preview/download is a short-lived **signed URL** minted
+  server-side after an ownership check, and **every** upload / preview /
+  download / delete is written to an append-only audit log.
+- **Private Details** — internal owner/commission/notes data is owner-only and
+  is never referenced by the public RPC, the AI marketing kit, or any public API.
 - **No privilege escalation** — the `profiles` update policy prevents a user
   from flipping their own `is_admin` flag.
 - **Lead-before-WhatsApp** — public lead capture always persists the lead to the
-  database before any WhatsApp hand-off (enforced client + server side).
+  database first; the WhatsApp **click-to-chat** hand-off is an optional action
+  triggered only by an explicit button click (no Meta API, no webhooks).
 - **Anti-spam** — honeypot field + server-side IP/slug rate limiting on lead
   submission.
 - **Service role key** is used only on the server (never bundled to the client).
@@ -305,23 +323,74 @@ Some earlier databases were created with `property_images.url` (and without
 > If you saw `column property_images_1.image_url does not exist`, run migration
 > `0007` (and the Phase 1 migrations if not yet applied) — see below.
 
+### Phase 3 — Document Vault, Private Details & lead flow
+- **New enums** `document_type` (`agreement`, `floor_plan`, `brochure`,
+  `legal`, `identity`, `other`), `document_access_action`
+  (`upload`, `preview`, `download`, `delete`), `commission_type`
+  (`percentage`, `fixed`).
+- **New table `property_documents`** — `id`, `property_id` (FK), `user_id` (FK),
+  `file_name`, `file_url` (storage object path — **not** a public URL),
+  `document_type`, `file_size`, `title`, `mime_type`, `uploaded_at`,
+  `updated_at`. **Owner-only RLS.**
+- **New table `document_access_log`** (append-only audit) — `id`, `document_id`
+  (FK, set-null on delete), `property_id` (FK), `user_id`, `action`,
+  `file_name`, `created_at`. **Owner-readable / owner-insertable RLS**; no
+  update/delete policies.
+- **New table `property_private_details`** — one row per property
+  (`unique(property_id)`): `owner_name`, `owner_phone`, `owner_email`,
+  `alternate_contact`, `commission_type`, `commission_percentage`,
+  `commission_amount`, `expected_commission`, `deal_stage`, `internal_notes`,
+  timestamps. **Owner-only RLS.** Never exposed publicly.
+- **New private storage bucket `property-documents`** — `public = false`,
+  25 MB limit, MIME = PDF/JPG/PNG/WEBP. Storage policies allow owners to
+  read/write/delete only their own folder; there is **no public read policy**
+  (reads happen exclusively via signed URLs).
+- **Lead flow finalized** (no schema change): public lead capture is now a
+  strict 2-step flow — save to DB first, then a **"Continue on WhatsApp"**
+  button that opens `wa.me` click-to-chat **only on click**. No Meta /
+  WhatsApp Business API, no webhooks, no server-side WhatsApp messaging.
+- **No new environment variables** are required for Phase 3.
+
 ---
 
 ## ⬆️ Upgrading an existing database
 
 Run the new migrations **in order** in the Supabase SQL Editor. They are written
-to be safe/idempotent:
+to be safe/idempotent (every object uses `IF NOT EXISTS` / `DROP POLICY IF
+EXISTS`, enums are guarded, and the storage bucket upsert is conflict-safe):
 
 ```text
 0004_profiles.sql
 0005_landing_agent_contact.sql
 0006_leads.sql
 0007_reconcile_property_images.sql
+0008_documents.sql
+0009_private_details.sql
 ```
 
-If you already applied the Phase 1 migrations (`0004`, `0005`) manually, just run
-`0006` and `0007`. After running `0007`, the
-`column property_images.image_url does not exist` error is resolved.
+Only run the files you haven't applied yet. After running `0007`, the
+`column property_images.image_url does not exist` error is resolved. `0008` and
+`0009` add the Phase 3 tables, audit log, private bucket and private-details
+table.
+
+## 🆕 Fresh installation
+
+On a brand-new Supabase project, run **all** migrations once, in numeric order:
+
+```text
+0001_init.sql
+0002_storage.sql
+0003_public_landing.sql
+0004_profiles.sql
+0005_landing_agent_contact.sql
+0006_leads.sql
+0007_reconcile_property_images.sql   # no-op on a fresh DB
+0008_documents.sql
+0009_private_details.sql
+```
+
+They execute cleanly from zero with no schema conflicts. `set_updated_at()` is
+defined in `0001` and reused by later triggers, so order matters.
 
 ---
 

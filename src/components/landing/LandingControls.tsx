@@ -24,29 +24,33 @@ export function LandingControls({
   const { toast } = useToast();
 
   const isLive = current?.is_published;
-  const publicUrl = current ? `${siteUrl}/p/${current.slug}` : '';
+  // Only ever build a public URL from a guaranteed-valid slug. Never "/p/undefined".
+  const hasValidSlug = !!current?.slug && current.slug.trim() !== '';
+  const publicUrl = hasValidSlug ? `${siteUrl}/p/${current!.slug}` : '';
 
   function publish() {
     startTransition(async () => {
       const res = await publishLandingAction(propertyId);
-      if (res.error) {
-        toast(res.error, 'error');
+      if (res.error || !res.slug) {
+        toast(res.error ?? 'Could not publish landing page', 'error');
         return;
       }
       toast('Landing page published', 'success');
+      // Reload so dashboard, manager and public page share one source of truth.
       window.location.reload();
     });
   }
 
   function unpublish() {
     startTransition(async () => {
-      try {
-        await unpublishLandingAction(propertyId);
-        setCurrent((prev) => (prev ? { ...prev, is_published: false } : prev));
-        toast('Landing page unpublished', 'info');
-      } catch {
-        toast('Could not unpublish', 'error');
+      const res = await unpublishLandingAction(propertyId);
+      if (res.error) {
+        toast(res.error, 'error');
+        return;
       }
+      setCurrent((prev) => (prev ? { ...prev, is_published: false } : prev));
+      toast('Landing page unpublished', 'info');
+      window.location.reload();
     });
   }
 
@@ -96,21 +100,28 @@ export function LandingControls({
         </div>
       </div>
 
-      <div className="mt-4 rounded-xl bg-ink-50 p-3">
-        <p className="text-xs font-medium text-ink-400">Public URL</p>
-        <div className="mt-1 flex items-center gap-2">
-          <code className="flex-1 truncate text-sm text-ink-700">{publicUrl}</code>
-          <CopyButton text={publicUrl} label="Copy" />
-          <a
-            href={`/p/${current.slug}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-brand-700"
-          >
-            <ExternalLinkIcon className="h-3.5 w-3.5" /> Open
-          </a>
+      {hasValidSlug ? (
+        <div className="mt-4 rounded-xl bg-ink-50 p-3">
+          <p className="text-xs font-medium text-ink-400">Public URL</p>
+          <div className="mt-1 flex items-center gap-2">
+            <code className="flex-1 truncate text-sm text-ink-700">{publicUrl}</code>
+            <CopyButton text={publicUrl} label="Copy" />
+            <a
+              href={`/p/${current!.slug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-brand-700"
+            >
+              <ExternalLinkIcon className="h-3.5 w-3.5" /> Open
+            </a>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-700">
+          This landing page is missing a valid public address. Click{' '}
+          <span className="font-semibold">Re-publish</span> to regenerate it.
+        </div>
+      )}
     </div>
   );
 }

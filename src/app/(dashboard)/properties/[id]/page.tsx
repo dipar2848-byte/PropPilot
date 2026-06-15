@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getProperty } from '@/lib/data/properties';
 import { getPropertyLeadCounts } from '@/lib/data/leads';
+import { getPropertyDocumentCount } from '@/lib/data/documents';
 import { PageHeader } from '@/components/dashboard/PageHeader';
 import { PropertyGallery } from '@/components/properties/PropertyGallery';
 import { PropertyActions } from '@/components/properties/PropertyActions';
@@ -16,6 +17,8 @@ import {
   SparklesIcon,
   GlobeIcon,
   UserIcon,
+  DocumentIcon,
+  LockIcon,
 } from '@/components/ui/Icons';
 import {
   formatPrice,
@@ -56,7 +59,10 @@ export default async function PropertyDetailPage({
   const property = await getProperty(id);
   if (!property) notFound();
 
-  const leadCounts = await getPropertyLeadCounts(id);
+  const [leadCounts, documentCount] = await Promise.all([
+    getPropertyLeadCounts(id),
+    getPropertyDocumentCount(id),
+  ]);
 
   return (
     <div>
@@ -173,7 +179,7 @@ export default async function PropertyDetailPage({
             <Link href={`/properties/${id}/landing`} className="btn-secondary mt-4 w-full">
               Manage landing page
             </Link>
-            {property.landing?.is_published && (
+            {property.landing?.is_published && property.landing.slug && (
               <a
                 href={`/p/${property.landing.slug}`}
                 target="_blank"
@@ -201,6 +207,40 @@ export default async function PropertyDetailPage({
             </div>
             <Link href={`/properties/${id}/leads`} className="btn-secondary mt-4 w-full">
               View leads
+            </Link>
+          </div>
+
+          <div className="card p-5">
+            <div className="flex items-center gap-2">
+              <span className="grid h-9 w-9 place-items-center rounded-xl bg-sky-50 text-sky-600">
+                <DocumentIcon className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-ink-900">Documents</p>
+                <p className="text-xs text-ink-400">
+                  {documentCount === 0
+                    ? 'No documents yet'
+                    : `${documentCount} of 5 stored`}
+                </p>
+              </div>
+            </div>
+            <Link href={`/properties/${id}/documents`} className="btn-secondary mt-4 w-full">
+              Manage documents
+            </Link>
+          </div>
+
+          <div className="card p-5">
+            <div className="flex items-center gap-2">
+              <span className="grid h-9 w-9 place-items-center rounded-xl bg-amber-50 text-amber-600">
+                <LockIcon className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-ink-900">Private details</p>
+                <p className="text-xs text-ink-400">Owner, commission &amp; notes — private</p>
+              </div>
+            </div>
+            <Link href={`/properties/${id}/private`} className="btn-secondary mt-4 w-full">
+              Edit private details
             </Link>
           </div>
         </div>
