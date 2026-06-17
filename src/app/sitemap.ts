@@ -30,9 +30,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         .order('updated_at', { ascending: false })
         .limit(5000);
 
+      const cleanBase = base.replace(/\/+$/, '');
       for (const row of data ?? []) {
+        // Defensive: never emit "/p/undefined" or "/p/" for legacy/null slugs.
+        if (!row.slug || row.slug.trim() === '') continue;
         entries.push({
-          url: `${base}/p/${row.slug}`,
+          url: `${cleanBase}/p/${row.slug}`,
           lastModified: row.updated_at ? new Date(row.updated_at) : new Date(),
           changeFrequency: 'weekly',
           priority: 0.8,
