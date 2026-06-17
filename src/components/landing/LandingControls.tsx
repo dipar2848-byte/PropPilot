@@ -1,6 +1,7 @@
 'use client';
 
 import { useTransition, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import type { LandingPage } from '@/lib/types';
 import {
   publishLandingAction,
@@ -19,25 +20,45 @@ export function LandingControls({
   landing: LandingPage | null;
   siteUrl: string;
 }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [current, setCurrent] = useState<LandingPage | null>(landing);
   const { toast } = useToast();
 
   const isLive = current?.is_published;
   // Only ever build a public URL from a guaranteed-valid slug. Never "/p/undefined".
+  const base = siteUrl.replace(/\/+$/, '');
   const hasValidSlug = !!current?.slug && current.slug.trim() !== '';
-  const publicUrl = hasValidSlug ? `${siteUrl}/p/${current!.slug}` : '';
+  const publicUrl = hasValidSlug ? `${base}/p/${current!.slug}` : '';
 
   function publish() {
     startTransition(async () => {
       const res = await publishLandingAction(propertyId);
-      if (res.error || !res.slug) {
+      if (res.error || !res.slug || res.slug.trim() === '') {
         toast(res.error ?? 'Could not publish landing page', 'error');
         return;
       }
+      // Reflect the DB-persisted slug + status immediately (single source of
+      // truth is the value the server just returned from the database).
+      const slug = res.slug;
+      const isPublished = res.isPublished ?? true;
+      setCurrent((prev) =>
+        prev
+          ? { ...prev, slug, is_published: isPublished, public_url: `${base}/p/${slug}` }
+          : {
+              id: 'pending',
+              property_id: propertyId,
+              user_id: '',
+              slug,
+              public_url: `${base}/p/${slug}`,
+              is_published: isPublished,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+      );
       toast('Landing page published', 'success');
-      // Reload so dashboard, manager and public page share one source of truth.
-      window.location.reload();
+      // Re-fetch server components so dashboard + list reflect DB state too.
+      router.refresh();
     });
   }
 
@@ -48,9 +69,11 @@ export function LandingControls({
         toast(res.error, 'error');
         return;
       }
-      setCurrent((prev) => (prev ? { ...prev, is_published: false } : prev));
+      setCurrent((prev) =>
+        prev ? { ...prev, is_published: res.isPublished ?? false } : prev,
+      );
       toast('Landing page unpublished', 'info');
-      window.location.reload();
+      router.refresh();
     });
   }
 

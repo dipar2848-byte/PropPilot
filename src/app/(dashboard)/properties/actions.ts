@@ -4,6 +4,11 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/data/properties';
+import {
+  checkPropertyLimit,
+  checkAiGenerationLimit,
+  recordUsage,
+} from '@/lib/data/subscription';
 import { propertySchema, parseAmenities } from '@/lib/validation';
 import { sanitiseFileName, buildSlug } from '@/lib/utils';
 import { generateMarketingKit } from '@/lib/ai/service';
@@ -95,24 +100,66 @@ export async function createPropertyAction(
   const parsed = parseForm(formData);
   if (!parsed.success) return { fieldErrors: flattenZod(parsed.error) };
 
-  const { supabase, user } = await requireUser();
+  let user;
+  let supabase;
+  try {
+    ({ supabase, user } = await requireUser());
+  } catch {
+    return { error: 'Your session has expired. Please sign in again.' };
+  }
+
+  // Server-side plan-limit enforcement. NEVER trust the client: the count and
+  // the effective plan are both read from the database.
+  try {
+    const limitCheck = await checkPropertyLimit();
+    if (!limitCheck.allowed) {
+      return { error: limitCheck.reason ?? 'You have reached your property limit.' };
+    }
+  } catch {
+    // If the limit check itself errors (e.g. transient), do not hard-block
+    // creation — but log via the returned error path only when insert fails.
+  }
+
+  // The property row is the primary entity — insert it first and fail hard if
+  // this does not succeed (schema / RLS / connectivity issues surface clearly).
   const { data, error } = await supabase
     .from('properties')
     .insert({ ...parsed.data, user_id: user.id })
     .select('id')
     .single();
 
-  if (error || !data) return { error: error?.message ?? 'Could not create property.' };
+  if (error || !data?.id) {
+    return {
+      error: error?.message
+        ? `Could not create property: ${error.message}`
+        : 'Could not create property. Please try again.',
+    };
+  }
 
-  const files = formData.getAll('images').filter((f): f is File => f instanceof File);
-  try {
-    await uploadImages(data.id, user.id, files, 0, true);
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Image upload failed.' };
+  // Image uploads are secondary. If they fail we keep the created property and
+  // surface a clear, non-fatal message rather than stranding the user on a
+  // generic error while the property silently exists.
+  const files = formData.getAll('images').filter((f): f is File => f instanceof File && f.size > 0);
+  let imageWarning: string | undefined;
+  if (files.length > 0) {
+    try {
+      await uploadImages(data.id, user.id, files, 0, true);
+    } catch (e) {
+      imageWarning = e instanceof Error ? e.message : 'Some images could not be uploaded.';
+    }
   }
 
   revalidatePath('/dashboard');
   revalidatePath('/properties');
+
+  // If images failed, stay on the form context by reporting the warning; the
+  // property already exists, so the user can open it and add photos there.
+  if (imageWarning) {
+    return {
+      error: `Property created, but image upload failed: ${imageWarning} You can add photos from the property page.`,
+    };
+  }
+
   redirect(`/properties/${data.id}`);
 }
 
@@ -300,6 +347,16 @@ export async function generateMarketingAction(
     return { error: 'Too many generations. Please wait a minute and try again.' };
   }
 
+  // Server-side monthly AI-generation limit enforcement (plan-based, DB-backed).
+  try {
+    const aiCheck = await checkAiGenerationLimit();
+    if (!aiCheck.allowed) {
+      return { error: aiCheck.reason ?? 'You have reached your monthly AI generation limit.' };
+    }
+  } catch {
+    // Non-fatal: fall through; the generation itself can still surface errors.
+  }
+
   const { data: property, error } = await supabase
     .from('properties')
     .select('*')
@@ -325,6 +382,14 @@ export async function generateMarketingAction(
     { onConflict: 'property_id' },
   );
   if (upsertError) return { error: upsertError.message };
+
+  // Credit deduction: record one AI generation against this month's quota.
+  // Tamper-proof (SECURITY DEFINER RPC). Non-fatal if it fails.
+  try {
+    await recordUsage('ai_generation', 1);
+  } catch (e) {
+    console.error('usage tracking failed:', e);
+  }
 
   revalidatePath('/dashboard');
   revalidatePath('/marketing');
@@ -352,8 +417,20 @@ function revalidateLanding(propertyId: string) {
   revalidatePath(`/properties/${propertyId}/landing`);
 }
 
+/** Builds a guaranteed-non-empty, normalized public URL for a slug. */
+function publicUrlFor(slug: string): string {
+  const base = publicEnv.siteUrl.replace(/\/+$/, ''); // no trailing slash -> no "//p/"
+  return `${base}/p/${slug}`;
+}
+
 export async function publishLandingAction(propertyId: string): Promise<LandingActionState> {
-  const { supabase, user } = await requireUser();
+  let supabase;
+  let user;
+  try {
+    ({ supabase, user } = await requireUser());
+  } catch {
+    return { error: 'Your session has expired. Please sign in again.' };
+  }
 
   const { data: property } = await supabase
     .from('properties')
@@ -372,9 +449,10 @@ export async function publishLandingAction(propertyId: string): Promise<LandingA
 
   if (existing) {
     // Guard: a legacy row could be missing its slug. Backfill before publishing
-    // so we never expose a "/p/undefined" link.
-    let slug = existing.slug;
-    if (!slug || slug.trim() === '') {
+    // so we never expose a "/p/undefined" link. buildSlug always returns a
+    // non-empty value (with a random suffix to avoid unique collisions).
+    let slug = (existing.slug ?? '').trim();
+    if (slug === '') {
       slug = buildSlug(property.title);
     }
     const { data: updated, error: updErr } = await supabase
@@ -382,21 +460,21 @@ export async function publishLandingAction(propertyId: string): Promise<LandingA
       .update({
         is_published: true,
         slug,
-        public_url: `${publicEnv.siteUrl}/p/${slug}`,
+        public_url: publicUrlFor(slug),
       })
       .eq('id', existing.id)
       .eq('user_id', user.id)
       .select('slug, is_published')
       .single();
-    if (updErr || !updated?.slug) {
-      return { error: updErr?.message ?? 'Could not publish landing page.' };
+    // Hard-verify the persisted slug is valid before reporting success.
+    if (updErr || !updated?.slug || updated.slug.trim() === '') {
+      return { error: updErr?.message ?? 'Could not publish landing page. Please try again.' };
     }
     revalidateLanding(propertyId);
-    return { slug: updated.slug, isPublished: updated.is_published };
+    return { slug: updated.slug, isPublished: !!updated.is_published };
   }
 
   const slug = buildSlug(property.title);
-  const publicUrl = `${publicEnv.siteUrl}/p/${slug}`;
 
   const { data: inserted, error } = await supabase
     .from('landing_pages')
@@ -404,17 +482,17 @@ export async function publishLandingAction(propertyId: string): Promise<LandingA
       property_id: propertyId,
       user_id: user.id,
       slug,
-      public_url: publicUrl,
+      public_url: publicUrlFor(slug),
       is_published: true,
     })
     .select('slug, is_published')
     .single();
-  if (error || !inserted?.slug) {
-    return { error: error?.message ?? 'Could not create landing page.' };
+  if (error || !inserted?.slug || inserted.slug.trim() === '') {
+    return { error: error?.message ?? 'Could not create landing page. Please try again.' };
   }
 
   revalidateLanding(propertyId);
-  return { slug: inserted.slug, isPublished: inserted.is_published };
+  return { slug: inserted.slug, isPublished: !!inserted.is_published };
 }
 
 export async function unpublishLandingAction(

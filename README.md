@@ -26,6 +26,7 @@ Built with **Next.js 15 (App Router)**, **TypeScript**, **Tailwind CSS**, and
 | **Lead capture & WhatsApp click-to-chat** *(Phase 2 + Phase 3)* | Public landing pages capture leads (name, phone, optional message) and **persist them to the database BEFORE any WhatsApp hand-off**. Strict **2-step flow**: (1) submit → save to DB; (2) success screen with a **"Continue on WhatsApp"** button that opens `wa.me` **click-to-chat only on click** (no auto-redirect, no phone auto-detection). The message is built from the user's own input + property title, with a copy-to-clipboard / manual-link fallback. **No Meta / WhatsApp Business API, no webhooks, no server-side messaging.** Per-property lead dashboard with counts, search and status filters. |
 | **Document Vault** *(Phase 3)* | Up to **5 private documents per property** (PDF / JPG / PNG / WEBP, **25 MB** max). Stored in a **non-public** Supabase bucket; never exposed via public URLs — every preview/download uses a **short-lived signed URL** minted server-side after an ownership check. Upload / preview / download / delete, all **audit-logged**. |
 | **Private Details** *(Phase 3)* | A strictly **internal-only** tab per property: real owner contact, commission terms (percentage/fixed, expected commission), deal stage and private notes. **Never** exposed on public landing pages, the `get_public_landing` RPC, the AI kit, or any public API. Owner-only via RLS. |
+| **Subscriptions & plans** *(Phase 4)* | Every user is auto-provisioned a **`subscriptions` row** on signup that starts a **7-day Pro trial**. Two plans — **Free** (3 properties, 1 landing page, 10 AI generations/mo, 5 docs/property) and **Pro** (unlimited) — with **limits defined in code** (`src/lib/plans.ts`) so they evolve without a migration. A `getSubscriptionState()` helper resolves the **effective plan** (trial grants full Pro access until it lapses) and is the single source of truth Phase 5 limit enforcement reads from. A **Billing & Plan** page shows current status + plan comparison, and the dashboard surfaces a trial banner. **Owner-only RLS — users can never self-promote to a paid plan** (paid transitions are applied server-side / via the payment webhook in a later phase). |
 | **Public landing pages** | SEO + Open Graph optimized, JSON-LD `RealEstateListing` structured data, image gallery, lead form, and a WhatsApp CTA. Served to anonymous visitors via a `SECURITY DEFINER` RPC that returns **only** public fields — never documents or private details. |
 | **Centralized branding** | A single `APP_CONFIG` (`src/lib/config.ts`) drives the product name everywhere (metadata, dashboard, landing pages, PWA). Rebrand by changing one value / `NEXT_PUBLIC_APP_NAME`. |
 | **PWA** | Web app manifest, service worker (network-first navigation, stale-while-revalidate assets), offline fallback page, generated icons, and an install prompt. |
@@ -126,6 +127,8 @@ Open **SQL Editor** in your Supabase dashboard and run each file in order:
 | `0007_reconcile_property_images.sql` *(Phase 2 fix)* | **Idempotent** reconciliation that brings legacy databases in line with the code: renames `property_images.url` → `image_url` if needed, and adds missing `storage_path` / `is_cover` columns + indexes. No-op on already-correct schemas. |
 | `0008_documents.sql` *(Phase 3)* | Creates the `document_type` + `document_access_action` enums, the `property_documents` table, the append-only `document_access_log` audit table (both **owner-only RLS**), and the **private** `property-documents` storage bucket (25 MB, PDF/JPG/PNG/WEBP) with owner-only storage policies and **no public read**. |
 | `0009_private_details.sql` *(Phase 3)* | Creates the `commission_type` enum and the `property_private_details` table (one row per property, **owner-only RLS**). This data is never exposed publicly. |
+| `0010_subscriptions.sql` *(Phase 4)* | Creates the `subscription_plan` + `subscription_status` enums and the `subscriptions` table (one row per user, **owner-only RLS**). **Extends `handle_new_user()`** so every new signup is auto-provisioned a `free`/`trialing` subscription with a 7-day window (+ backfill for existing users). Users may insert only a `free`/`trialing` starter row and have **no UPDATE/DELETE** policy — they can never self-promote to a paid plan (paid transitions are applied server-side). |
+| `0011_billing_plans_transactions.sql` *(Phase 4)* | Creates the `transaction_type` + `transaction_status` enums and three tables: **`plans`** (publicly-readable plan catalog, seeded `free`/`pro`, kept in sync with `src/lib/plans.ts`; service-role writes only), **`transactions`** (append-only billing/credit ledger — owner read-only, **inserts blocked for clients** so a user can never fabricate a payment), and **`usage_counters`** (per-user, per-month credit tracking — owner read-only). Adds the tamper-proof `increment_usage(feature, amount)` `SECURITY DEFINER` RPC for server-side credit deduction. |
 
 ### 2. Auth configuration
 
@@ -180,7 +183,9 @@ That's it. No build configuration or custom commands are required.
 │       ├── 0006_leads.sql                 # Leads table + public RPC (Phase 2)
 │       ├── 0007_reconcile_property_images.sql # Schema reconciliation fix
 │       ├── 0008_documents.sql             # Document vault + audit log (Phase 3)
-│       └── 0009_private_details.sql       # Private property details (Phase 3)
+│       ├── 0009_private_details.sql       # Private property details (Phase 3)
+│       ├── 0010_subscriptions.sql         # Subscriptions + trial (Phase 4)
+│       └── 0011_billing_plans_transactions.sql # Plans, transactions, usage credits (Phase 4)
 ├── src/
 │   ├── middleware.ts         # Route protection entry
 │   ├── app/
@@ -351,6 +356,45 @@ Some earlier databases were created with `property_images.url` (and without
   WhatsApp Business API, no webhooks, no server-side WhatsApp messaging.
 - **No new environment variables** are required for Phase 3.
 
+### Phase 4 — Subscriptions, Plans, Transactions & Usage Credits
+- **New enums** `subscription_plan` (`free`, `pro`), `subscription_status`
+  (`trialing`, `active`, `past_due`, `canceled`), `transaction_type`
+  (`subscription`, `credit_purchase`, `refund`, `adjustment`),
+  `transaction_status` (`pending`, `succeeded`, `failed`, `refunded`).
+- **New table `subscriptions`** — one row per user (`unique(user_id)`):
+  `plan` (default `free`), `status` (default `trialing`), `trial_started_at`,
+  `trial_ends_at` (default now + 7 days), `current_period_end`, `provider`,
+  `provider_ref`, timestamps. **Owner-only RLS** — a user may insert only a
+  `free`/`trialing` starter row and **cannot UPDATE/DELETE** (no self-promote;
+  paid transitions are applied with the service role).
+- **`handle_new_user()` extended** (in `0010`) to auto-provision a trialing
+  subscription on signup, plus a one-time backfill for existing users. The
+  profile-insert behaviour from Phase 1 is preserved exactly.
+- **New table `plans`** — publicly-readable plan catalog (`id`, `name`,
+  `price_monthly`, `max_properties`, `max_landing_pages`,
+  `max_ai_generations_month`, `max_documents_property`, `is_active`,
+  `sort_order`), seeded with `free`/`pro` and kept in sync with
+  `src/lib/plans.ts`. **Read = public; writes = service role only.**
+- **New table `transactions`** — append-only billing/credit ledger
+  (`user_id`, `type`, `status`, `amount`, `currency`, `plan_id`, `provider`,
+  `provider_ref`, `description`, `created_at`). **Owner read-only**; there is
+  **no client INSERT/UPDATE/DELETE policy** so a user can never fabricate a
+  payment record (verified: an attacker insert is rejected by RLS).
+- **New table `usage_counters`** — per-user, per-month metered-feature credits
+  (`unique(user_id, feature, period)`), e.g. `ai_generation`. **Owner read-only**;
+  the count is mutated **only** by the tamper-proof `increment_usage(feature,
+  amount)` `SECURITY DEFINER` RPC.
+- **Server-side limit enforcement** (never trusts the client): property creation
+  checks `checkPropertyLimit()` and AI generation checks
+  `checkAiGenerationLimit()` against the **effective plan** (trial grants Pro
+  access until it lapses) and the **real DB counts** before proceeding; a
+  successful AI generation deducts one credit via `recordUsage('ai_generation')`.
+- **Billing & Plan page** (`/billing`) shows current status, a plan comparison,
+  this month's AI-usage meter and billing history. The dashboard shows a
+  trial-status banner. Plan limits are defined in code (`src/lib/plans.ts`).
+- **No new environment variables** are required for Phase 4. Online payments
+  (Cashfree) arrive in a later phase; until then the trial grants full Pro access.
+
 ---
 
 ## ⬆️ Upgrading an existing database
@@ -366,12 +410,17 @@ EXISTS`, enums are guarded, and the storage bucket upsert is conflict-safe):
 0007_reconcile_property_images.sql
 0008_documents.sql
 0009_private_details.sql
+0010_subscriptions.sql
+0011_billing_plans_transactions.sql
 ```
 
 Only run the files you haven't applied yet. After running `0007`, the
 `column property_images.image_url does not exist` error is resolved. `0008` and
 `0009` add the Phase 3 tables, audit log, private bucket and private-details
-table.
+table. `0010` and `0011` add the Phase 4 subscription, plan-catalog,
+transaction-ledger and usage-credit tables. `0010` also extends the existing
+`handle_new_user()` trigger to auto-provision a trialing subscription and
+backfills one for any users created before Phase 4.
 
 ## 🆕 Fresh installation
 
@@ -387,6 +436,8 @@ On a brand-new Supabase project, run **all** migrations once, in numeric order:
 0007_reconcile_property_images.sql   # no-op on a fresh DB
 0008_documents.sql
 0009_private_details.sql
+0010_subscriptions.sql
+0011_billing_plans_transactions.sql
 ```
 
 They execute cleanly from zero with no schema conflicts. `set_updated_at()` is

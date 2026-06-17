@@ -146,6 +146,70 @@ export type DocumentAccessLog = {
 export const COMMISSION_TYPES = ['percentage', 'fixed'] as const;
 export type CommissionType = (typeof COMMISSION_TYPES)[number];
 
+export const SUBSCRIPTION_PLANS = ['free', 'pro'] as const;
+export type SubscriptionPlan = (typeof SUBSCRIPTION_PLANS)[number];
+
+export const SUBSCRIPTION_STATUSES = ['trialing', 'active', 'past_due', 'canceled'] as const;
+export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
+
+export type Subscription = {
+  id: string;
+  user_id: string;
+  plan: SubscriptionPlan;
+  status: SubscriptionStatus;
+  trial_started_at: string;
+  trial_ends_at: string;
+  current_period_end: string | null;
+  provider: string;
+  provider_ref: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export const TRANSACTION_TYPES = ['subscription', 'credit_purchase', 'refund', 'adjustment'] as const;
+export type TransactionType = (typeof TRANSACTION_TYPES)[number];
+
+export const TRANSACTION_STATUSES = ['pending', 'succeeded', 'failed', 'refunded'] as const;
+export type TransactionStatus = (typeof TRANSACTION_STATUSES)[number];
+
+export type Plan = {
+  id: string;
+  name: string;
+  price_monthly: number;
+  max_properties: number | null;
+  max_landing_pages: number | null;
+  max_ai_generations_month: number | null;
+  max_documents_property: number;
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Transaction = {
+  id: string;
+  user_id: string;
+  type: TransactionType;
+  status: TransactionStatus;
+  amount: number;
+  currency: string;
+  plan_id: string | null;
+  provider: string;
+  provider_ref: string;
+  description: string;
+  created_at: string;
+};
+
+export type UsageCounter = {
+  id: string;
+  user_id: string;
+  feature: string;
+  period: string;
+  used: number;
+  created_at: string;
+  updated_at: string;
+};
+
 export type PropertyPrivateDetails = {
   id: string;
   property_id: string;
@@ -289,6 +353,30 @@ export interface Database {
           },
         ];
       };
+      subscriptions: {
+        Row: Subscription;
+        Insert: Partial<Subscription> & { user_id: string };
+        Update: Partial<Subscription>;
+        Relationships: [];
+      };
+      plans: {
+        Row: Plan;
+        Insert: Partial<Plan> & { id: string; name: string };
+        Update: Partial<Plan>;
+        Relationships: [];
+      };
+      transactions: {
+        Row: Transaction;
+        Insert: Partial<Transaction> & { user_id: string };
+        Update: Partial<Transaction>;
+        Relationships: [];
+      };
+      usage_counters: {
+        Row: UsageCounter;
+        Insert: Partial<UsageCounter> & { user_id: string; feature: string; period: string };
+        Update: Partial<UsageCounter>;
+        Relationships: [];
+      };
       document_access_log: {
         Row: DocumentAccessLog;
         Insert: Partial<DocumentAccessLog> & {
@@ -373,6 +461,10 @@ export interface Database {
         };
         Returns: string;
       };
+      increment_usage: {
+        Args: { p_feature: string; p_amount?: number };
+        Returns: number;
+      };
     };
     Enums: {
       property_status: PropertyStatus;
@@ -381,6 +473,10 @@ export interface Database {
       document_type: DocumentType;
       document_access_action: DocumentAccessAction;
       commission_type: CommissionType;
+      subscription_plan: SubscriptionPlan;
+      subscription_status: SubscriptionStatus;
+      transaction_type: TransactionType;
+      transaction_status: TransactionStatus;
     };
     CompositeTypes: Record<never, never>;
   };

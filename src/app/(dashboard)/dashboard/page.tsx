@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getDashboardStats, listProperties } from '@/lib/data/properties';
+import { getSubscriptionState } from '@/lib/data/subscription';
 import { PropertyCard } from '@/components/properties/PropertyCard';
 import { EmptyState } from '@/components/dashboard/EmptyState';
 import {
@@ -8,6 +9,7 @@ import {
   GlobeIcon,
   SparklesIcon,
   PlusIcon,
+  CreditCardIcon,
 } from '@/components/ui/Icons';
 
 export const metadata: Metadata = { title: 'Dashboard' };
@@ -57,10 +59,13 @@ function StatCard({
 }
 
 export default async function DashboardPage() {
-  const [stats, recent] = await Promise.all([
+  const [stats, recent, subscription] = await Promise.all([
     getDashboardStats(),
     listProperties({}, 6),
+    getSubscriptionState(),
   ]);
+
+  const showTrialBanner = subscription.isTrialing || subscription.trialExpired;
 
   return (
     <div className="space-y-8">
@@ -70,6 +75,43 @@ export default async function DashboardPage() {
           Welcome back — here&apos;s an overview of your workspace.
         </p>
       </div>
+
+      {/* Trial / plan banner */}
+      {showTrialBanner && (
+        <Link
+          href="/billing"
+          className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-4 transition hover:shadow-soft ${
+            subscription.trialExpired
+              ? 'border-ink-200 bg-ink-50'
+              : 'border-amber-200 bg-amber-50'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <span
+              className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${
+                subscription.trialExpired ? 'bg-ink-200 text-ink-600' : 'bg-amber-100 text-amber-600'
+              }`}
+            >
+              <CreditCardIcon className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="font-semibold text-ink-900">
+                {subscription.trialExpired
+                  ? 'Your free trial has ended'
+                  : `You're on a free trial — ${subscription.trialDaysLeft} day${
+                      subscription.trialDaysLeft === 1 ? '' : 's'
+                    } left`}
+              </p>
+              <p className="text-sm text-ink-500">
+                {subscription.trialExpired
+                  ? 'You are now on the Free plan. Upgrade to Pro to lift your limits.'
+                  : 'Enjoy full Pro access during your trial. Manage your plan anytime.'}
+              </p>
+            </div>
+          </div>
+          <span className="text-sm font-semibold text-brand-600">View plans →</span>
+        </Link>
+      )}
 
       {/* Stats */}
       <div className="grid gap-4 sm:grid-cols-3">
