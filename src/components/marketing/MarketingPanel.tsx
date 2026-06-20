@@ -33,9 +33,13 @@ const SECTIONS: Section[] = [
 export function MarketingPanel({
   propertyId,
   marketing,
+  aiDisabled = false,
+  aiUsageLabel,
 }: {
   propertyId: string;
   marketing: MarketingAsset | null;
+  aiDisabled?: boolean;
+  aiUsageLabel?: string;
 }) {
   const [pending, startTransition] = useTransition();
   const [data, setData] = useState<MarketingAsset | null>(marketing);
@@ -65,10 +69,16 @@ export function MarketingPanel({
           Generate a complete set of marketing copy — listing descriptions and social posts —
           tailored to this property.
         </p>
-        <button onClick={generate} disabled={pending} className="btn-primary mt-6">
+        <button
+          onClick={generate}
+          disabled={pending || aiDisabled}
+          className="btn-primary mt-6 disabled:cursor-not-allowed disabled:opacity-60"
+          title={aiDisabled ? 'Monthly AI generation limit reached' : undefined}
+        >
           {pending ? <SpinnerIcon className="h-4 w-4" /> : <SparklesIcon className="h-4 w-4" />}
           {pending ? 'Generating…' : 'Generate marketing kit'}
         </button>
+        {aiUsageLabel && <p className="mt-3 text-xs text-ink-400">{aiUsageLabel}</p>}
       </div>
     );
   }
@@ -82,10 +92,18 @@ export function MarketingPanel({
             Generated with {data.provider === 'template' ? 'PropPilot engine' : data.provider}.
           </p>
         </div>
-        <button onClick={generate} disabled={pending} className="btn-secondary">
-          {pending ? <SpinnerIcon className="h-4 w-4" /> : <SparklesIcon className="h-4 w-4" />}
-          {pending ? 'Regenerating…' : 'Regenerate'}
-        </button>
+        <div className="flex flex-col items-end gap-1">
+          <button
+            onClick={generate}
+            disabled={pending || aiDisabled}
+            className="btn-secondary disabled:cursor-not-allowed disabled:opacity-60"
+            title={aiDisabled ? 'Monthly AI generation limit reached' : undefined}
+          >
+            {pending ? <SpinnerIcon className="h-4 w-4" /> : <SparklesIcon className="h-4 w-4" />}
+            {pending ? 'Regenerating…' : 'Regenerate'}
+          </button>
+          {aiUsageLabel && <p className="text-xs text-ink-400">{aiUsageLabel}</p>}
+        </div>
       </div>
 
       <div className="grid gap-4">

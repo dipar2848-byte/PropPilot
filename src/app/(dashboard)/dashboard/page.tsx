@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getDashboardStats, listProperties } from '@/lib/data/properties';
-import { getSubscriptionState } from '@/lib/data/subscription';
+import { getLimitsSummary } from '@/lib/data/subscription';
 import { PropertyCard } from '@/components/properties/PropertyCard';
+import { UsageMeter } from '@/components/billing/UsageMeter';
 import { EmptyState } from '@/components/dashboard/EmptyState';
 import {
   BuildingIcon,
@@ -59,12 +60,13 @@ function StatCard({
 }
 
 export default async function DashboardPage() {
-  const [stats, recent, subscription] = await Promise.all([
+  const [stats, recent, limits] = await Promise.all([
     getDashboardStats(),
     listProperties({}, 6),
-    getSubscriptionState(),
+    getLimitsSummary(),
   ]);
 
+  const subscription = limits;
   const showTrialBanner = subscription.isTrialing || subscription.trialExpired;
 
   return (
@@ -133,6 +135,23 @@ export default async function DashboardPage() {
           icon={<GlobeIcon className="h-5 w-5" />}
           accent="bg-emerald-50 text-emerald-600"
         />
+      </div>
+
+      {/* Plan usage */}
+      <div className="card p-5 sm:p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-400">
+            Plan usage · {limits.planName}
+          </h2>
+          <Link href="/billing" className="text-sm font-medium text-brand-600 hover:text-brand-700">
+            Manage plan →
+          </Link>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <UsageMeter item={limits.items.properties} />
+          <UsageMeter item={limits.items.landingPages} />
+          <UsageMeter item={limits.items.aiGenerations} />
+        </div>
       </div>
 
       {/* Quick actions */}

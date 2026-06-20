@@ -175,6 +175,42 @@ export async function checkAiGenerationLimit(): Promise<LimitCheck> {
 }
 
 /**
+ * Server-side published-landing-page limit check. Counts only PUBLISHED pages
+ * against the plan's landing-page allowance.
+ */
+export async function checkLandingPageLimit(excludePropertyId?: string): Promise<LimitCheck> {
+  const { supabase, user } = await requireUser();
+  const state = await getSubscriptionState();
+  const limit = state.limits.maxLandingPages; // null = unlimited
+
+  let query = supabase
+    .from('landing_pages')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', user.id)
+    .eq('is_published', true);
+  // When re-publishing an existing page, don't count it against itself.
+  if (excludePropertyId) query = query.neq('property_id', excludePropertyId);
+
+  const { count, error } = await query;
+  if (error) throw new Error(error.message);
+
+  const current = count ?? 0;
+  if (limit === null) return { allowed: true, limit: null, current };
+  if (current >= limit) {
+    return {
+      allowed: false,
+      limit,
+      current,
+      reason:
+        state.trialExpired
+          ? `Your free plan allows ${limit} published landing page${limit === 1 ? '' : 's'}. Upgrade to Pro for unlimited.`
+          : `You've reached your plan limit of ${limit} published landing page${limit === 1 ? '' : 's'}.`,
+    };
+  }
+  return { allowed: true, limit, current };
+}
+
+/**
  * Atomically records one use of a metered feature via the tamper-proof
  * SECURITY DEFINER RPC. Returns the new total for this period.
  */
@@ -186,4 +222,71 @@ export async function recordUsage(feature: string, amount = 1): Promise<number> 
   });
   if (error) throw new Error(error.message);
   return (data as number | null) ?? 0;
+}
+
+export interface UsageItem {
+  label: string;
+  current: number;
+  limit: number | null; // null = unlimited
+  atLimit: boolean;
+}
+
+export interface LimitsSummary {
+  effectivePlan: SubscriptionPlan;
+  planName: string;
+  isTrialing: boolean;
+  trialDaysLeft: number;
+  trialExpired: boolean;
+  isPaidActive: boolean;
+  items: {
+    properties: UsageItem;
+    landingPages: UsageItem;
+    aiGenerations: UsageItem;
+  };
+}
+
+/**
+ * Consolidated, read-only snapshot of the user's usage vs. their effective
+ * plan limits — for surfacing meters / upgrade prompts in the UI. Reads all
+ * counts from the database in parallel.
+ */
+export async function getLimitsSummary(): Promise<LimitsSummary> {
+  const { supabase, user } = await requireUser();
+  const state = await getSubscriptionState();
+
+  const [propCount, landingCount, aiUsed] = await Promise.all([
+    supabase
+      .from('properties')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .then((r) => r.count ?? 0),
+    supabase
+      .from('landing_pages')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('is_published', true)
+      .then((r) => r.count ?? 0),
+    getUsage('ai_generation'),
+  ]);
+
+  const mk = (label: string, current: number, limit: number | null): UsageItem => ({
+    label,
+    current,
+    limit,
+    atLimit: limit !== null && current >= limit,
+  });
+
+  return {
+    effectivePlan: state.effectivePlan,
+    planName: state.plan.name,
+    isTrialing: state.isTrialing,
+    trialDaysLeft: state.trialDaysLeft,
+    trialExpired: state.trialExpired,
+    isPaidActive: state.isPaidActive,
+    items: {
+      properties: mk('Properties', propCount, state.limits.maxProperties),
+      landingPages: mk('Published landing pages', landingCount, state.limits.maxLandingPages),
+      aiGenerations: mk('AI generations this month', aiUsed, state.limits.maxAiGenerationsPerMonth),
+    },
+  };
 }
