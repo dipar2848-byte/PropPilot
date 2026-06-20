@@ -28,6 +28,7 @@ Built with **Next.js 15 (App Router)**, **TypeScript**, **Tailwind CSS**, and
 | **Private Details** *(Phase 3)* | A strictly **internal-only** tab per property: real owner contact, commission terms (percentage/fixed, expected commission), deal stage and private notes. **Never** exposed on public landing pages, the `get_public_landing` RPC, the AI kit, or any public API. Owner-only via RLS. |
 | **Subscriptions & plans** *(Phase 4)* | Every user is auto-provisioned a **`subscriptions` row** on signup that starts a **7-day Pro trial**. Two plans — **Free** (3 properties, 1 landing page, 10 AI generations/mo, 5 docs/property) and **Pro** (unlimited) — with **limits defined in code** (`src/lib/plans.ts`) so they evolve without a migration. A `getSubscriptionState()` helper resolves the **effective plan** (trial grants full Pro access until it lapses) and is the single source of truth Phase 5 limit enforcement reads from. A **Billing & Plan** page shows current status + plan comparison, and the dashboard surfaces a trial banner. **Owner-only RLS — users can never self-promote to a paid plan** (paid transitions are applied server-side / via the payment webhook in a later phase). |
 | **Plan-limit enforcement & usage UI** *(Phase 5)* | Server-side limit checks (`checkPropertyLimit`, `checkLandingPageLimit`, `checkAiGenerationLimit`) read the **effective plan + real DB counts** before any gated action — the client is never trusted. The UI mirrors that truth: the dashboard shows a **"Plan usage" card** with live `UsageMeter` progress bars (properties, published landing pages, AI generations), the **properties list disables the "Add property" button** and shows an `UpgradePrompt` at limit, **`/properties/new` blocks the form** when the property cap is reached, the **marketing panel disables AI generation** at the monthly cap, and the **landing-pages list surfaces a published-page limit prompt**. Every gate degrades gracefully to a CTA that links to **Billing** — no client-side privilege changes. **No new migration is required** (Phase 5 is purely enforcement + UI on top of the Phase 4 schema). |
+| **Online payments — Cashfree** *(Phase 6)* | Real **Pro upgrades via the Cashfree Payment Gateway**. The client never sets the price or its own plan: an **`UpgradeButton`** asks a server action to create a `payment_orders` row (service-role) + a Cashfree order, then launches the hosted checkout with the returned `payment_session_id`. A subscription is upgraded **only** by the tamper-proof, **idempotent** `apply_subscription_payment` `SECURITY DEFINER` RPC, triggered by either (a) a **signature-verified webhook** (`/api/payments/cashfree/webhook`, HMAC-SHA256 over the raw body) or (b) a **return-URL reconciliation** that re-queries the gateway for the authoritative status. Duplicate webhooks are safe no-ops; the ledger never double-records. **Fully optional** — with no Cashfree env the app runs on the trial and shows a friendly note instead of the button. |
 | **Public landing pages** | SEO + Open Graph optimized, JSON-LD `RealEstateListing` structured data, image gallery, lead form, and a WhatsApp CTA. Served to anonymous visitors via a `SECURITY DEFINER` RPC that returns **only** public fields — never documents or private details. |
 | **Centralized branding** | A single `APP_CONFIG` (`src/lib/config.ts`) drives the product name everywhere (metadata, dashboard, landing pages, PWA). Rebrand by changing one value / `NEXT_PUBLIC_APP_NAME`. |
 | **PWA** | Web app manifest, service worker (network-first navigation, stale-while-revalidate assets), offline fallback page, generated icons, and an install prompt. |
@@ -97,8 +98,14 @@ Copy `.env.example` to `.env.local`. Required values are marked **REQUIRED**.
 | `RESEND_API_KEY` | — | Resend API key for email notifications (used in a later phase). |
 | `NOTIFICATIONS_FROM_EMAIL` | — | From-address for outbound notifications. |
 | `ADMIN_EMAIL` | — | Recipient for admin alerts (e.g. AI outages). |
-| `PAYMENT_PROVIDER` | — | Payment provider id (`cashfree`). Provider is abstracted; MVP billing is manual UPI. |
-| `CASHFREE_APP_ID` / `CASHFREE_SECRET_KEY` / `CASHFREE_WEBHOOK_SECRET` / `CASHFREE_ENV` | — | Cashfree credentials (used in the billing phase). |
+| `CASHFREE_APP_ID` | — | Cashfree Payment Gateway App ID. Required to enable online Pro upgrades (Phase 6). Server only. |
+| `CASHFREE_SECRET_KEY` | — | Cashfree secret key. **Server only** — used to authenticate API calls *and* to verify webhook signatures. |
+| `CASHFREE_MODE` | — | `sandbox` (default) \| `production`. Selects the Cashfree API base + checkout SDK mode. |
+
+> 💳 **Payments are optional.** If `CASHFREE_APP_ID` / `CASHFREE_SECRET_KEY` are
+> unset, the app runs normally on the 7-day Pro trial and the Billing page shows
+> an *"online payments aren't enabled"* note instead of the upgrade button — no
+> errors. Set all three to enable real Pro upgrades.
 
 > ⚠️ **Removed in Phase 1:** `NEXT_PUBLIC_CONTACT_PHONE`, `NEXT_PUBLIC_CONTACT_EMAIL`
 > and `NEXT_PUBLIC_CONTACT_WHATSAPP` no longer exist. Per-agent contact details
@@ -130,6 +137,7 @@ Open **SQL Editor** in your Supabase dashboard and run each file in order:
 | `0009_private_details.sql` *(Phase 3)* | Creates the `commission_type` enum and the `property_private_details` table (one row per property, **owner-only RLS**). This data is never exposed publicly. |
 | `0010_subscriptions.sql` *(Phase 4)* | Creates the `subscription_plan` + `subscription_status` enums and the `subscriptions` table (one row per user, **owner-only RLS**). **Extends `handle_new_user()`** so every new signup is auto-provisioned a `free`/`trialing` subscription with a 7-day window (+ backfill for existing users). Users may insert only a `free`/`trialing` starter row and have **no UPDATE/DELETE** policy — they can never self-promote to a paid plan (paid transitions are applied server-side). |
 | `0011_billing_plans_transactions.sql` *(Phase 4)* | Creates the `transaction_type` + `transaction_status` enums and three tables: **`plans`** (publicly-readable plan catalog, seeded `free`/`pro`, kept in sync with `src/lib/plans.ts`; service-role writes only), **`transactions`** (append-only billing/credit ledger — owner read-only, **inserts blocked for clients** so a user can never fabricate a payment), and **`usage_counters`** (per-user, per-month credit tracking — owner read-only). Adds the tamper-proof `increment_usage(feature, amount)` `SECURITY DEFINER` RPC for server-side credit deduction. |
+| `0012_payments_cashfree.sql` *(Phase 6)* | Creates the `payment_order_status` enum and the **`payment_orders`** table (one row per checkout attempt — **owner read-only**, all writes via the service role). Adds the **idempotent** `apply_subscription_payment(order_id, cf_payment_id, period_months)` `SECURITY DEFINER` RPC (granted to `service_role` **only**) which, in one transaction, marks the order paid, flips the subscription to `pro`/`active` with a one-month period, and appends a `succeeded` transaction — a duplicate webhook is a safe no-op. |
 
 ### 2. Auth configuration
 
@@ -186,7 +194,8 @@ That's it. No build configuration or custom commands are required.
 │       ├── 0008_documents.sql             # Document vault + audit log (Phase 3)
 │       ├── 0009_private_details.sql       # Private property details (Phase 3)
 │       ├── 0010_subscriptions.sql         # Subscriptions + trial (Phase 4)
-│       └── 0011_billing_plans_transactions.sql # Plans, transactions, usage credits (Phase 4)
+│       ├── 0011_billing_plans_transactions.sql # Plans, transactions, usage credits (Phase 4)
+│       └── 0012_payments_cashfree.sql     # Cashfree orders + idempotent apply RPC (Phase 6)
 ├── src/
 │   ├── middleware.ts         # Route protection entry
 │   ├── app/
@@ -428,6 +437,43 @@ Some earlier databases were created with `property_images.url` (and without
   (excluding the current property) as a non-fatal guard before publishing.
 - **No new environment variables** are required for Phase 5.
 
+### Phase 6 — Online payments (Cashfree)
+- **New migration `0012`** adds the `payment_order_status` enum, the
+  `payment_orders` table (owner read-only; service-role writes only) and the
+  **idempotent** `apply_subscription_payment(...)` `SECURITY DEFINER` RPC granted
+  to `service_role` only.
+- **The client can never self-upgrade.** The upgrade path is:
+  1. `UpgradeButton` (client) → `startCheckoutAction` (server) creates a
+     `payment_orders` row via the **service role** and a Cashfree order; it
+     returns only a `payment_session_id`.
+  2. The Cashfree hosted checkout (loaded from `sdk.cashfree.com`) collects
+     payment and returns the user to `/billing?order_id=...`.
+  3. The subscription is upgraded **only** by `apply_subscription_payment`,
+     triggered by either:
+     - the **signature-verified webhook** at
+       `POST /api/payments/cashfree/webhook` — HMAC-SHA256 over
+       `timestamp + rawBody` with the secret key, constant-time compared; an
+       invalid signature is rejected with `401` and does nothing; **or**
+     - the **return reconciliation** (`reconcileOrderAction`) which re-queries
+       the gateway for the authoritative `order_status` and applies the upgrade
+       if `PAID` — so the user sees Pro immediately even if the webhook lags.
+- **Idempotent & tamper-proof.** The RPC locks the order row, refuses to act if
+  it is already `paid` (duplicate webhook = no-op), and only then upgrades the
+  subscription and writes **exactly one** `succeeded` ledger row. The price and
+  plan come from the server (`src/lib/plans.ts`) — never the client.
+- **Graceful when unconfigured.** With no `CASHFREE_APP_ID` /
+  `CASHFREE_SECRET_KEY`, payments are disabled cleanly: the Billing page shows a
+  note instead of the button, the webhook ACKs without acting, and the trial
+  continues to grant full Pro access.
+- **New env (all optional):** `CASHFREE_APP_ID`, `CASHFREE_SECRET_KEY`,
+  `CASHFREE_MODE` (`sandbox`|`production`). All server-only.
+- **New files:** `src/lib/payments/cashfree.ts` (gateway client + signature
+  verify), `src/lib/data/payments.ts` (order persistence + apply via RPC),
+  `src/app/(dashboard)/billing/actions.ts` (checkout + reconcile actions),
+  `src/app/api/payments/cashfree/webhook/route.ts`,
+  `src/components/billing/UpgradeButton.tsx`,
+  `src/components/billing/CheckoutReturn.tsx`.
+
 ---
 
 ## ⬆️ Upgrading an existing database
@@ -445,6 +491,7 @@ EXISTS`, enums are guarded, and the storage bucket upsert is conflict-safe):
 0009_private_details.sql
 0010_subscriptions.sql
 0011_billing_plans_transactions.sql
+0012_payments_cashfree.sql
 ```
 
 Only run the files you haven't applied yet. After running `0007`, the
@@ -453,7 +500,9 @@ Only run the files you haven't applied yet. After running `0007`, the
 table. `0010` and `0011` add the Phase 4 subscription, plan-catalog,
 transaction-ledger and usage-credit tables. `0010` also extends the existing
 `handle_new_user()` trigger to auto-provision a trialing subscription and
-backfills one for any users created before Phase 4.
+backfills one for any users created before Phase 4. `0012` adds the Phase 6
+`payment_orders` table and the idempotent `apply_subscription_payment` RPC for
+Cashfree upgrades — it is upgrade-safe and applies cleanly on top of `0010`/`0011`.
 
 ## 🆕 Fresh installation
 
@@ -471,6 +520,7 @@ On a brand-new Supabase project, run **all** migrations once, in numeric order:
 0009_private_details.sql
 0010_subscriptions.sql
 0011_billing_plans_transactions.sql
+0012_payments_cashfree.sql
 ```
 
 They execute cleanly from zero with no schema conflicts. `set_updated_at()` is

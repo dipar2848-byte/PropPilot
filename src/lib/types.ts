@@ -210,6 +210,26 @@ export type UsageCounter = {
   updated_at: string;
 };
 
+export const PAYMENT_ORDER_STATUSES = ['created', 'paid', 'failed', 'expired'] as const;
+export type PaymentOrderStatus = (typeof PAYMENT_ORDER_STATUSES)[number];
+
+export type PaymentOrder = {
+  id: string;
+  user_id: string;
+  order_id: string;
+  plan_id: string;
+  amount: number;
+  currency: string;
+  status: PaymentOrderStatus;
+  provider: string;
+  cf_order_id: string;
+  payment_session_id: string;
+  cf_payment_id: string;
+  paid_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type PropertyPrivateDetails = {
   id: string;
   property_id: string;
@@ -377,6 +397,12 @@ export interface Database {
         Update: Partial<UsageCounter>;
         Relationships: [];
       };
+      payment_orders: {
+        Row: PaymentOrder;
+        Insert: Partial<PaymentOrder> & { user_id: string; order_id: string; plan_id: string };
+        Update: Partial<PaymentOrder>;
+        Relationships: [];
+      };
       document_access_log: {
         Row: DocumentAccessLog;
         Insert: Partial<DocumentAccessLog> & {
@@ -465,6 +491,10 @@ export interface Database {
         Args: { p_feature: string; p_amount?: number };
         Returns: number;
       };
+      apply_subscription_payment: {
+        Args: { p_order_id: string; p_cf_payment_id?: string; p_period_months?: number };
+        Returns: boolean;
+      };
     };
     Enums: {
       property_status: PropertyStatus;
@@ -477,6 +507,7 @@ export interface Database {
       subscription_status: SubscriptionStatus;
       transaction_type: TransactionType;
       transaction_status: TransactionStatus;
+      payment_order_status: PaymentOrderStatus;
     };
     CompositeTypes: Record<never, never>;
   };
