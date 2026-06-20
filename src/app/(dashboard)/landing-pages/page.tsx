@@ -2,9 +2,11 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
 import { listLandingPages } from '@/lib/data/landing';
+import { checkLandingPageLimit } from '@/lib/data/subscription';
 import { publicEnv } from '@/lib/env';
 import { PageHeader } from '@/components/dashboard/PageHeader';
 import { EmptyState } from '@/components/dashboard/EmptyState';
+import { UpgradePrompt } from '@/components/billing/UpgradePrompt';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { GlobeIcon, BuildingIcon, ExternalLinkIcon } from '@/components/ui/Icons';
 import { formatPrice, propertyTypeLabel } from '@/lib/utils';
@@ -13,15 +15,31 @@ export const metadata: Metadata = { title: 'Landing Pages' };
 export const dynamic = 'force-dynamic';
 
 export default async function LandingPagesPage() {
-  const items = await listLandingPages();
+  const [items, limit] = await Promise.all([listLandingPages(), checkLandingPageLimit()]);
   const live = items.filter((i) => i.landing.is_published).length;
+  const atLimit = !limit.allowed;
+  const subtitle =
+    limit.limit === null
+      ? `${live} live · ${items.length} total`
+      : `${live} live · ${items.length} total · ${live}/${limit.limit} published on your plan`;
 
   return (
     <div>
-      <PageHeader
-        title="Landing Pages"
-        subtitle={`${live} live · ${items.length} total`}
-      />
+      <PageHeader title="Landing Pages" subtitle={subtitle} />
+
+      {atLimit && (
+        <UpgradePrompt
+          tone="rose"
+          className="mb-6"
+          title="Published landing page limit reached"
+          message={
+            limit.reason ??
+            `You've reached your plan limit of ${limit.limit} published landing page${
+              limit.limit === 1 ? '' : 's'
+            }. Unpublish one or upgrade to Pro to publish more.`
+          }
+        />
+      )}
 
       {items.length === 0 ? (
         <EmptyState

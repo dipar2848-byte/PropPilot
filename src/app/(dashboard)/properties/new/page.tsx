@@ -1,11 +1,16 @@
 import type { Metadata } from 'next';
 import { PageHeader } from '@/components/dashboard/PageHeader';
 import { PropertyForm } from '@/components/properties/PropertyForm';
+import { UpgradePrompt } from '@/components/billing/UpgradePrompt';
 import { createPropertyAction } from '@/app/(dashboard)/properties/actions';
+import { checkPropertyLimit } from '@/lib/data/subscription';
 
 export const metadata: Metadata = { title: 'Add property' };
+export const dynamic = 'force-dynamic';
 
-export default function NewPropertyPage() {
+export default async function NewPropertyPage() {
+  const limit = await checkPropertyLimit();
+
   return (
     <div>
       <PageHeader
@@ -14,7 +19,16 @@ export default function NewPropertyPage() {
         backHref="/properties"
         backLabel="Back to properties"
       />
-      <PropertyForm action={createPropertyAction} submitLabel="Create property" />
+
+      {!limit.allowed ? (
+        <UpgradePrompt
+          tone="rose"
+          title="Property limit reached"
+          message={limit.reason ?? 'Upgrade to Pro to add more properties.'}
+        />
+      ) : (
+        <PropertyForm action={createPropertyAction} submitLabel="Create property" />
+      )}
     </div>
   );
 }

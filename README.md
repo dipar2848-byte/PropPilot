@@ -27,6 +27,7 @@ Built with **Next.js 15 (App Router)**, **TypeScript**, **Tailwind CSS**, and
 | **Document Vault** *(Phase 3)* | Up to **5 private documents per property** (PDF / JPG / PNG / WEBP, **25 MB** max). Stored in a **non-public** Supabase bucket; never exposed via public URLs — every preview/download uses a **short-lived signed URL** minted server-side after an ownership check. Upload / preview / download / delete, all **audit-logged**. |
 | **Private Details** *(Phase 3)* | A strictly **internal-only** tab per property: real owner contact, commission terms (percentage/fixed, expected commission), deal stage and private notes. **Never** exposed on public landing pages, the `get_public_landing` RPC, the AI kit, or any public API. Owner-only via RLS. |
 | **Subscriptions & plans** *(Phase 4)* | Every user is auto-provisioned a **`subscriptions` row** on signup that starts a **7-day Pro trial**. Two plans — **Free** (3 properties, 1 landing page, 10 AI generations/mo, 5 docs/property) and **Pro** (unlimited) — with **limits defined in code** (`src/lib/plans.ts`) so they evolve without a migration. A `getSubscriptionState()` helper resolves the **effective plan** (trial grants full Pro access until it lapses) and is the single source of truth Phase 5 limit enforcement reads from. A **Billing & Plan** page shows current status + plan comparison, and the dashboard surfaces a trial banner. **Owner-only RLS — users can never self-promote to a paid plan** (paid transitions are applied server-side / via the payment webhook in a later phase). |
+| **Plan-limit enforcement & usage UI** *(Phase 5)* | Server-side limit checks (`checkPropertyLimit`, `checkLandingPageLimit`, `checkAiGenerationLimit`) read the **effective plan + real DB counts** before any gated action — the client is never trusted. The UI mirrors that truth: the dashboard shows a **"Plan usage" card** with live `UsageMeter` progress bars (properties, published landing pages, AI generations), the **properties list disables the "Add property" button** and shows an `UpgradePrompt` at limit, **`/properties/new` blocks the form** when the property cap is reached, the **marketing panel disables AI generation** at the monthly cap, and the **landing-pages list surfaces a published-page limit prompt**. Every gate degrades gracefully to a CTA that links to **Billing** — no client-side privilege changes. **No new migration is required** (Phase 5 is purely enforcement + UI on top of the Phase 4 schema). |
 | **Public landing pages** | SEO + Open Graph optimized, JSON-LD `RealEstateListing` structured data, image gallery, lead form, and a WhatsApp CTA. Served to anonymous visitors via a `SECURITY DEFINER` RPC that returns **only** public fields — never documents or private details. |
 | **Centralized branding** | A single `APP_CONFIG` (`src/lib/config.ts`) drives the product name everywhere (metadata, dashboard, landing pages, PWA). Rebrand by changing one value / `NEXT_PUBLIC_APP_NAME`. |
 | **PWA** | Web app manifest, service worker (network-first navigation, stale-while-revalidate assets), offline fallback page, generated icons, and an install prompt. |
@@ -394,6 +395,38 @@ Some earlier databases were created with `property_images.url` (and without
   trial-status banner. Plan limits are defined in code (`src/lib/plans.ts`).
 - **No new environment variables** are required for Phase 4. Online payments
   (Cashfree) arrive in a later phase; until then the trial grants full Pro access.
+
+### Phase 5 — Plan-limit enforcement & usage UI
+- **No new migration / no schema change.** Phase 5 is built entirely on top of
+  the Phase 4 schema — it adds server-side enforcement helpers and the UI that
+  reflects them. (If you already applied `0010` + `0011`, you are ready.)
+- **New server helpers** in `src/lib/data/subscription.ts`:
+  - `checkLandingPageLimit(excludePropertyId?)` — counts only **published**
+    landing pages against the plan's allowance; when re-publishing an existing
+    page it excludes that property so a page never counts against itself.
+  - `getLimitsSummary()` — a single consolidated snapshot (effective plan, trial
+    state, and a `UsageItem` for properties / published landing pages / AI
+    generations) that the dashboard renders. Each item carries `current`,
+    `limit` (null = unlimited) and a derived `atLimit` flag.
+- **All limit checks are server-side and read the real database** — the client
+  is never trusted. The UI only *reflects* the server's decision; it never
+  grants access.
+- **UI surfaces** (all degrade to a Billing CTA, never a client privilege change):
+  - **Dashboard** — a "Plan usage" card with live `UsageMeter` progress bars
+    (turns amber near 80%, rose at limit) plus the existing trial banner.
+  - **Properties list** — the "Add property" button is **disabled with a lock**
+    and a rose `UpgradePrompt` is shown when the property cap is reached.
+  - **`/properties/new`** — renders the `UpgradePrompt` instead of the form when
+    the property limit is hit (defence in depth alongside the server action).
+  - **Marketing panel** — the AI "Generate" buttons are **disabled** at the
+    monthly AI-generation cap, with the current usage shown beneath them.
+  - **Landing-pages list** — shows a published-landing-page limit prompt and the
+    `live/limit` count in the page subtitle.
+- **New presentational components** `src/components/billing/UsageMeter.tsx` and
+  `src/components/billing/UpgradePrompt.tsx`.
+- **Publish flow** (`publishLandingAction`) now also runs `checkLandingPageLimit`
+  (excluding the current property) as a non-fatal guard before publishing.
+- **No new environment variables** are required for Phase 5.
 
 ---
 

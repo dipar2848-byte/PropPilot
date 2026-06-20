@@ -7,6 +7,7 @@ import { requireUser } from '@/lib/data/properties';
 import {
   checkPropertyLimit,
   checkAiGenerationLimit,
+  checkLandingPageLimit,
   recordUsage,
 } from '@/lib/data/subscription';
 import { propertySchema, parseAmenities } from '@/lib/validation';
@@ -439,6 +440,17 @@ export async function publishLandingAction(propertyId: string): Promise<LandingA
     .eq('user_id', user.id)
     .single();
   if (!property) return { error: 'Property not found.' };
+
+  // Server-side published-landing-page limit enforcement. Excludes this
+  // property so re-publishing an already-counted page is always allowed.
+  try {
+    const landingCheck = await checkLandingPageLimit(propertyId);
+    if (!landingCheck.allowed) {
+      return { error: landingCheck.reason ?? 'You have reached your landing page limit.' };
+    }
+  } catch {
+    // Non-fatal: fall through (the publish itself can still surface errors).
+  }
 
   const { data: existing } = await supabase
     .from('landing_pages')
