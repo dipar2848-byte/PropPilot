@@ -6,7 +6,10 @@ import {
 } from '@/lib/data/subscription';
 import { PLAN_ORDER, getPlan } from '@/lib/plans';
 import { PageHeader } from '@/components/dashboard/PageHeader';
-import { CheckIcon, SparklesIcon } from '@/components/ui/Icons';
+import { CheckIcon } from '@/components/ui/Icons';
+import { UpgradeButton } from '@/components/billing/UpgradeButton';
+import { CheckoutReturn } from '@/components/billing/CheckoutReturn';
+import { isCashfreeConfigured } from '@/lib/payments/cashfree';
 import { formatDate } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Billing & Plan' };
@@ -26,8 +29,13 @@ function StatusPill({ children, tone }: { children: React.ReactNode; tone: 'gree
   );
 }
 
-export default async function BillingPage() {
-  const [state, aiUsed, transactions] = await Promise.all([
+export default async function BillingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ order_id?: string }>;
+}) {
+  const [{ order_id: orderId }, state, aiUsed, transactions] = await Promise.all([
+    searchParams,
     getSubscriptionState(),
     getUsage('ai_generation'),
     listTransactions(),
@@ -35,10 +43,13 @@ export default async function BillingPage() {
   const { subscription, effectivePlan, limits, isTrialing, trialDaysLeft, trialExpired, isPaidActive } =
     state;
   const aiLimit = limits.maxAiGenerationsPerMonth;
+  const paymentsEnabled = isCashfreeConfigured();
 
   return (
     <div>
       <PageHeader title="Billing & Plan" subtitle="Manage your subscription and usage limits." />
+
+      {orderId && <CheckoutReturn orderId={orderId} />}
 
       {/* Current status */}
       <div className="card mb-6 p-5 sm:p-6">
@@ -106,14 +117,14 @@ export default async function BillingPage() {
               </ul>
 
               {id === 'pro' && !isPaidActive && (
-                <button
-                  type="button"
-                  disabled
-                  className="btn-primary mt-6 w-full opacity-70"
-                  title="Payments are enabled in a later phase"
-                >
-                  <SparklesIcon className="h-4 w-4" /> Upgrade (coming soon)
-                </button>
+                paymentsEnabled ? (
+                  <UpgradeButton className="mt-6" />
+                ) : (
+                  <p className="mt-6 rounded-xl bg-ink-50 px-3 py-2 text-center text-xs text-ink-500">
+                    Online payments aren’t enabled on this server yet. Your trial gives you full Pro
+                    access in the meantime.
+                  </p>
+                )
               )}
               {isCurrent && (
                 <p className="mt-6 text-center text-xs text-ink-400">This is your current plan.</p>
@@ -187,8 +198,9 @@ export default async function BillingPage() {
       </div>
 
       <p className="mt-6 text-xs text-ink-400">
-        Online payments (Cashfree) will be enabled in an upcoming release. Your trial gives you full
-        Pro access in the meantime.
+        {paymentsEnabled
+          ? 'Payments are processed securely by Cashfree. Your Pro plan activates automatically once payment is confirmed.'
+          : 'Online payments (Cashfree) are not configured on this server. Your trial gives you full Pro access in the meantime.'}
       </p>
     </div>
   );

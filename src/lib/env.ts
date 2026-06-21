@@ -39,6 +39,32 @@ export function getServiceRoleKey() {
   return required('SUPABASE_SERVICE_ROLE_KEY', process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
 
+export type CashfreeMode = 'sandbox' | 'production';
+
+/**
+ * Cashfree payments configuration. Reads from the environment but NEVER throws
+ * when unset — callers should check `isConfigured` and degrade gracefully so
+ * the app (and trial flow) keeps working without payment credentials.
+ *
+ * All values are server-only secrets; none are NEXT_PUBLIC_.
+ */
+export function getCashfreeConfig() {
+  const appId = process.env.CASHFREE_APP_ID ?? '';
+  const secretKey = process.env.CASHFREE_SECRET_KEY ?? '';
+  const mode = (process.env.CASHFREE_MODE ?? 'sandbox').toLowerCase() as CashfreeMode;
+  return {
+    appId,
+    secretKey,
+    mode,
+    /** Webhook signature secret. Cashfree signs webhooks with the secret key. */
+    isConfigured: appId.trim() !== '' && secretKey.trim() !== '',
+    apiBase:
+      mode === 'production'
+        ? 'https://api.cashfree.com/pg'
+        : 'https://sandbox.cashfree.com/pg',
+  };
+}
+
 export type AiProvider = 'template' | 'openai' | 'anthropic' | 'gemini';
 
 export function getAiConfig() {
