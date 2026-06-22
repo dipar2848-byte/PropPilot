@@ -30,6 +30,21 @@ function daysBetween(from: Date, to: Date): number {
  *   - status 'trialing' & not expired -> treated as 'pro' (full trial access)
  *   - trial expired / past_due / canceled -> 'free' limits
  */
+/** A safe "fresh free user" state — used when there is no subscription row or
+ * the subscriptions table is not yet present (older install / pending migration). */
+function freeFallbackState(): SubscriptionState {
+  return {
+    subscription: null,
+    effectivePlan: 'free',
+    plan: getPlan('free'),
+    limits: getPlan('free').limits,
+    isTrialing: false,
+    trialDaysLeft: 0,
+    trialExpired: false,
+    isPaidActive: false,
+  };
+}
+
 export async function getSubscriptionState(): Promise<SubscriptionState> {
   const { supabase, user } = await requireUser();
 
@@ -38,23 +53,23 @@ export async function getSubscriptionState(): Promise<SubscriptionState> {
     .select('*')
     .eq('user_id', user.id)
     .maybeSingle();
-  if (error) throw new Error(error.message);
+  if (error) {
+    // 42P01 = undefined_table: the Phase 4 subscriptions migration hasn't been
+    // applied yet. Degrade to the free plan instead of crashing every page that
+    // reads subscription state (keeps older installs working).
+    if (error.code === '42P01') {
+      console.error('[subscription] subscriptions table missing — defaulting to Free plan.');
+      return freeFallbackState();
+    }
+    throw new Error(error.message);
+  }
 
   const subscription = (data as Subscription | null) ?? null;
   const now = new Date();
 
   // No row yet (e.g. trigger hasn't run): treat as a fresh free user.
   if (!subscription) {
-    return {
-      subscription: null,
-      effectivePlan: 'free',
-      plan: getPlan('free'),
-      limits: getPlan('free').limits,
-      isTrialing: false,
-      trialDaysLeft: 0,
-      trialExpired: false,
-      isPaidActive: false,
-    };
+    return freeFallbackState();
   }
 
   const trialEnds = new Date(subscription.trial_ends_at);
@@ -96,7 +111,11 @@ export async function getUsage(feature: string): Promise<number> {
     .eq('feature', feature)
     .eq('period', currentPeriod())
     .maybeSingle();
-  if (error) throw new Error(error.message);
+  if (error) {
+    // Missing table (pending migration) -> treat as zero usage rather than crash.
+    if (error.code === '42P01') return 0;
+    throw new Error(error.message);
+  }
   return data?.used ?? 0;
 }
 
@@ -108,7 +127,11 @@ export async function listTransactions(): Promise<Transaction[]> {
     .select('*')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
-  if (error) throw new Error(error.message);
+  if (error) {
+    // Missing table (pending migration) -> empty history rather than crash.
+    if (error.code === '42P01') return [];
+    throw new Error(error.message);
+  }
   return (data as Transaction[] | null) ?? [];
 }
 
