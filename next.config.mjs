@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 let supabaseHost = '';
+
 try {
   if (supabaseUrl) supabaseHost = new URL(supabaseUrl).hostname;
 } catch {
@@ -15,15 +16,26 @@ const remotePatterns = [
 ];
 
 if (supabaseHost && !supabaseHost.endsWith('.supabase.co')) {
-  remotePatterns.push({ protocol: 'https', hostname: supabaseHost });
+  remotePatterns.push({
+    protocol: 'https',
+    hostname: supabaseHost,
+  });
 }
 
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '25mb',
+    },
+  },
+
   images: {
     remotePatterns,
   },
+
   async headers() {
     return [
       {
@@ -31,7 +43,10 @@ const nextConfig = {
         headers: [
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
-          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          {
+            key: 'Referrer-Policy',
+            value: 'strict-origin-when-cross-origin',
+          },
           {
             key: 'Permissions-Policy',
             value: 'camera=(), microphone=(), geolocation=()',
@@ -41,9 +56,18 @@ const nextConfig = {
       {
         source: '/sw.js',
         headers: [
-          { key: 'Content-Type', value: 'application/javascript; charset=utf-8' },
-          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
-          { key: 'Service-Worker-Allowed', value: '/' },
+          {
+            key: 'Content-Type',
+            value: 'application/javascript; charset=utf-8',
+          },
+          {
+            key: 'Cache-Control',
+            value: 'no-cache, no-store, must-revalidate',
+          },
+          {
+            key: 'Service-Worker-Allowed',
+            value: '/',
+          },
         ],
       },
     ];
