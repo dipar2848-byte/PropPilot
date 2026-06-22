@@ -34,6 +34,35 @@ function flattenZod(error: import('zod').ZodError): Record<string, string> {
   return out;
 }
 
+/**
+ * Maps an opaque Supabase/PostgREST insert error to an actionable message.
+ * `code` is the Postgres SQLSTATE (or PostgREST code) when present.
+ */
+function friendlyInsertError(
+  error: { code?: string; message?: string } | null,
+  entity: string,
+): string {
+  if (!error) return `Could not create ${entity}. Please try again.`;
+  const code = error.code ?? '';
+  switch (code) {
+    case '42P01': // undefined_table — a required migration hasn't been applied.
+      return `Could not create ${entity}: the database is not fully set up. Please apply the latest Supabase migrations and try again.`;
+    case '42501': // insufficient_privilege — RLS rejected the row.
+    case 'PGRST301':
+      return `Could not create ${entity}: permission denied. Please sign out and sign back in, then try again.`;
+    case '23505': // unique_violation
+      return `Could not create ${entity}: it looks like a duplicate. Please adjust and try again.`;
+    case '23502': // not_null_violation
+      return `Could not create ${entity}: a required field is missing. Please fill in all required fields.`;
+    case '22P02': // invalid_text_representation (bad enum / number)
+      return `Could not create ${entity}: one of the values is invalid. Please check the form and try again.`;
+    default:
+      return error.message
+        ? `Could not create ${entity}: ${error.message}`
+        : `Could not create ${entity}. Please try again.`;
+  }
+}
+
 function parseForm(formData: FormData) {
   return propertySchema.safeParse({
     title: formData.get('title'),
@@ -110,15 +139,17 @@ export async function createPropertyAction(
   }
 
   // Server-side plan-limit enforcement. NEVER trust the client: the count and
-  // the effective plan are both read from the database.
+  // the effective plan are both read from the database. A limit *breach* hard-
+  // blocks creation; a limit-check *failure* (e.g. the subscriptions table is
+  // missing because Phase 4 migrations haven't been applied yet) must NOT block
+  // creation — we log it and continue so the core CRUD keeps working.
   try {
     const limitCheck = await checkPropertyLimit();
     if (!limitCheck.allowed) {
       return { error: limitCheck.reason ?? 'You have reached your property limit.' };
     }
-  } catch {
-    // If the limit check itself errors (e.g. transient), do not hard-block
-    // creation — but log via the returned error path only when insert fails.
+  } catch (e) {
+    console.error('[createProperty] limit check failed (non-fatal):', e);
   }
 
   // The property row is the primary entity — insert it first and fail hard if
@@ -130,11 +161,8 @@ export async function createPropertyAction(
     .single();
 
   if (error || !data?.id) {
-    return {
-      error: error?.message
-        ? `Could not create property: ${error.message}`
-        : 'Could not create property. Please try again.',
-    };
+    console.error('[createProperty] insert failed:', error);
+    return { error: friendlyInsertError(error, 'property') };
   }
 
   // Image uploads are secondary. If they fail we keep the created property and

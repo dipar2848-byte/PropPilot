@@ -474,6 +474,41 @@ Some earlier databases were created with `property_images.url` (and without
   `src/components/billing/UpgradeButton.tsx`,
   `src/components/billing/CheckoutReturn.tsx`.
 
+### Phase 6.1 — Stabilization & bug-fix release
+- **No schema change / no new migration.** Phase 6.1 is purely correctness and
+  resilience fixes; existing installs and Supabase projects keep working as-is.
+- **Fixed: landing page reverted to "Unpublished" after refresh (root cause).**
+  When embedding a to-one relation from the parent side (`properties` →
+  `landing_pages` / `marketing_assets`), PostgREST can serialise it as an
+  **array**, so reading `is_published` off the assumed object returned
+  `undefined`. The read path now normalises both shapes via a `toOne()` helper
+  in `getProperty`, `listProperties` (`src/lib/data/properties.ts`) and
+  `listMarketing` (`src/lib/data/marketing.ts`). DB-level publish/unpublish was
+  verified correct; this was strictly a read-mapping bug.
+- **Fixed: property creation showed a generic error.** `createPropertyAction`
+  now maps opaque Postgres/PostgREST errors (`42P01` missing table / pending
+  migration, `42501`/`PGRST301` RLS denied, `23505` duplicate, `23502` missing
+  field, `22P02` invalid value) to **actionable messages**, and logs the raw
+  error server-side. The property insert remains the hard-fail step; image
+  upload stays non-fatal. Verified end-to-end on a fresh Postgres for new,
+  existing, trial and free users.
+- **Hardened: subscription reads no longer crash older installs.**
+  `getSubscriptionState`, `getUsage` and `listTransactions` now treat a
+  *missing* Phase 4 table (`42P01`) as "Free plan / zero usage / empty history"
+  instead of throwing — so the dashboard, billing and marketing pages render
+  even before the Phase 4/6 migrations are applied. A limit-check failure during
+  property creation is logged and **never blocks** creation.
+- **Profile dependency audit:** profile completion is **NOT** required to create
+  a property; `getMyProfile()` self-heals a missing profile row. (Profile
+  contact details are only used to enrich public landing pages.)
+- **File-upload audit:** uploads use unique storage paths (`Date.now()` + random
+  suffix) so `upsert:false` cannot collide; client + server both validate type
+  and the 5 MB size cap; upload failure is non-fatal and reported clearly.
+- **Build/OOM note:** Next 15 production builds can exceed ~1.5 GB. On
+  memory-constrained machines, build with a capped heap:
+  `NODE_OPTIONS="--max-old-space-size=1024" npm run build` (verified to compile
+  all 24 routes successfully). `tsc --noEmit` and `next lint` are clean.
+
 ---
 
 ## ⬆️ Upgrading an existing database

@@ -9,9 +9,18 @@ export interface MarketingListItem {
   updated_at: string | null;
 }
 
+type MarketingMini = { provider: string; updated_at: string };
+
 interface Row extends Property {
   property_images: Pick<PropertyImage, 'image_url' | 'position' | 'is_cover'>[];
-  marketing_assets: { provider: string; updated_at: string } | null;
+  // to-one but PostgREST may serialise as an array when embedded from the parent.
+  marketing_assets: MarketingMini | MarketingMini[] | null;
+}
+
+/** Normalise a PostgREST embedded to-one relation (object or array) to a single value. */
+function toOne<T>(value: unknown): T | null {
+  if (Array.isArray(value)) return (value[0] as T | undefined) ?? null;
+  return (value as T | null) ?? null;
 }
 
 /**
@@ -39,7 +48,7 @@ export async function listMarketing(): Promise<MarketingListItem[]> {
       images.find((i) => i.is_cover) ??
       images.slice().sort((a, b) => a.position - b.position)[0] ??
       null;
-    const marketing = row.marketing_assets ?? null;
+    const marketing = toOne<MarketingMini>(row.marketing_assets);
     const { property_images, marketing_assets, ...property } = row;
     void property_images;
     void marketing_assets;

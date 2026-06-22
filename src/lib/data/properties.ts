@@ -82,8 +82,9 @@ type ListImage = Pick<PropertyImage, 'id' | 'image_url' | 'position' | 'is_cover
 
 interface PropertyWithJoins extends Property {
   property_images: ListImage[];
-  marketing_assets: { id: string } | null;
-  landing_pages: { id: string; slug: string } | null;
+  // to-one but PostgREST may serialise as an array — normalise via toOne().
+  marketing_assets: { id: string } | { id: string }[] | null;
+  landing_pages: { id: string; slug: string } | { id: string; slug: string }[] | null;
 }
 
 function toListItem(row: PropertyWithJoins): PropertyListItem {
@@ -92,12 +93,13 @@ function toListItem(row: PropertyWithJoins): PropertyListItem {
     images.find((i) => i.is_cover) ??
     images.slice().sort((a, b) => a.position - b.position)[0] ??
     null;
-  const landing = row.landing_pages ?? null;
+  const landing = toOne<{ id: string; slug: string }>(row.landing_pages);
+  const marketing = toOne<{ id: string }>(row.marketing_assets);
   return {
     ...stripJoins(row),
     cover_url: cover?.image_url ?? null,
     image_count: images.length,
-    has_marketing: !!row.marketing_assets,
+    has_marketing: !!marketing,
     has_landing: !!landing,
     landing_slug: landing?.slug ?? null,
   };
@@ -113,6 +115,22 @@ function stripJoins(row: {
   void marketing_assets;
   void landing_pages;
   return rest;
+}
+
+/**
+ * Normalises a PostgREST embedded to-one relation to a single object or null.
+ *
+ * When embedding a child table from the PARENT side (e.g. `properties` ->
+ * `landing_pages`), PostgREST may return the relation as an ARRAY even though a
+ * unique constraint makes it logically to-one. If we naively treat that array
+ * as an object, fields like `is_published` read back as `undefined` — which is
+ * exactly what caused a freshly-published landing page to render as
+ * "Unpublished" after a refresh. This helper makes the read path robust to
+ * both shapes without any schema change.
+ */
+function toOne<T>(value: unknown): T | null {
+  if (Array.isArray(value)) return (value[0] as T | undefined) ?? null;
+  return (value as T | null) ?? null;
 }
 
 export async function listProperties(
@@ -179,8 +197,10 @@ export async function getProperty(id: string): Promise<PropertyDetail | null> {
 
   const row = data as unknown as Property & {
     property_images: PropertyImage[] | null;
-    marketing_assets: MarketingAsset | null;
-    landing_pages: LandingPage | null;
+    // These two are logically to-one but PostgREST may serialise them as arrays
+    // when embedded from the parent side — normalise via toOne() below.
+    marketing_assets: MarketingAsset | MarketingAsset[] | null;
+    landing_pages: LandingPage | LandingPage[] | null;
   };
 
   const images = (row.property_images ?? [])
@@ -190,7 +210,7 @@ export async function getProperty(id: string): Promise<PropertyDetail | null> {
   return {
     ...stripJoins(row),
     images,
-    marketing: row.marketing_assets ?? null,
-    landing: row.landing_pages ?? null,
+    marketing: toOne<MarketingAsset>(row.marketing_assets),
+    landing: toOne<LandingPage>(row.landing_pages),
   };
 }
