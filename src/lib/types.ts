@@ -261,6 +261,21 @@ export type Profile = {
   updated_at: string;
 };
 
+// Shape returned by the admin_platform_stats RPC (Phase 7).
+export interface AdminPlatformStats {
+  total_users: number;
+  admin_users: number;
+  total_properties: number;
+  published_landing: number;
+  total_leads: number;
+  total_documents: number;
+  subs_trialing: number;
+  subs_active: number;
+  subs_pro: number;
+  paid_orders: number;
+  revenue_total: number;
+}
+
 export interface PropertyWithRelations extends Property {
   property_images: PropertyImage[];
   marketing_assets: MarketingAsset[] | null;
@@ -493,6 +508,18 @@ export interface Database {
       };
       apply_subscription_payment: {
         Args: { p_order_id: string; p_cf_payment_id?: string; p_period_months?: number };
+        Returns: boolean;
+      };
+      is_platform_admin: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
+      admin_platform_stats: {
+        Args: Record<string, never>;
+        Returns: AdminPlatformStats;
+      };
+      admin_set_user_plan: {
+        Args: { p_user_id: string; p_action: 'grant' | 'revoke'; p_period_months?: number };
         Returns: boolean;
       };
     };

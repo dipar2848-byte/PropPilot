@@ -12,6 +12,7 @@ import {
   PlusIcon,
   SettingsIcon,
   CreditCardIcon,
+  ShieldIcon,
 } from '@/components/ui/Icons';
 import { cn } from '@/lib/utils';
 import { APP_CONFIG } from '@/lib/config';
@@ -26,7 +27,15 @@ const nav = [
   { href: '/settings', label: 'Settings', icon: SettingsIcon },
 ];
 
-export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
+const adminNav = { href: '/admin', label: 'Admin', icon: ShieldIcon };
+
+export function SidebarNav({
+  onNavigate,
+  isAdmin = false,
+}: {
+  onNavigate?: () => void;
+  isAdmin?: boolean;
+}) {
   const pathname = usePathname();
 
   function active(href: string, exact?: boolean) {
@@ -72,6 +81,22 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
             </Link>
           );
         })}
+
+        {isAdmin && (
+          <Link
+            href={adminNav.href}
+            onClick={onNavigate}
+            className={cn(
+              'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition',
+              active(adminNav.href)
+                ? 'bg-brand-50 text-brand-700'
+                : 'text-ink-600 hover:bg-ink-100 hover:text-ink-900',
+            )}
+          >
+            <adminNav.icon className="h-5 w-5" />
+            {adminNav.label}
+          </Link>
+        )}
       </nav>
 
       <div className="border-t border-ink-200 p-4">

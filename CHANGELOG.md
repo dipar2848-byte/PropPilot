@@ -7,6 +7,53 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [7.0.0] — Admin panel (Phase 7)
+
+Adds a server-side-gated platform admin area. **Backward-compatible:** the new
+migration is additive and idempotent, no historical migration is modified, and
+**no new environment variables** are introduced.
+
+### Added
+- **New migration `0013_admin.sql`.** A `SECURITY DEFINER` `is_platform_admin()`
+  helper; **additive cross-tenant `SELECT` RLS policies** on `profiles`,
+  `subscriptions`, `transactions`, `properties`, `leads` and `payment_orders`
+  (admins read all rows; owner-only policies stay intact, so non-admins are
+  unaffected); the admin-only `admin_platform_stats()` RPC (aggregate platform
+  metrics); and the `admin_set_user_plan(user_id, action, period_months)` RPC
+  that grants/revokes Pro and records an `adjustment` transaction. Both RPCs
+  re-check the admin flag and raise `42501` for non-admins.
+- **Admin section under `/admin`** gated by an `admin/layout.tsx` that runs
+  `requireAdmin()` and redirects non-admins before any page renders:
+  - `/admin` — platform overview (users, properties, published landing pages,
+    leads, documents, subscription mix, paid orders, total revenue).
+  - `/admin/users` — every account with plan/status and **Grant/Revoke Pro**
+    controls (`UserPlanControls`, Zod-validated `setUserPlanAction`).
+  - `/admin/transactions` — platform-wide transaction feed with user emails.
+- **Conditional Admin nav link** in the sidebar (desktop + mobile drawer), shown
+  only when the signed-in user is an admin.
+- `src/lib/data/admin.ts` (admin guard + platform-wide reads), `AdminPlatformStats`
+  type and the three RPC signatures in `src/lib/types.ts`, and `ShieldIcon` /
+  `UsersIcon` / `ChartIcon` in the icon set.
+
+### Security
+- Every admin entry point is enforced **server-side twice** (the route guard and
+  the RPC's own admin re-check) — the frontend is never trusted.
+- **Self-promotion to admin remains impossible** (the Phase 4 `profiles` update
+  check policy blocks flipping your own `is_admin`).
+- Verified on local Postgres: all 13 migrations apply clean + idempotently;
+  admins read cross-tenant and run the RPCs; non-admins are denied the RPCs and
+  see only their own rows.
+
+### Notes
+- Make an admin once after applying `0013`:
+  `update public.profiles set is_admin = true where email = '<you>';`
+- Build on memory-constrained machines with the documented capped heap:
+  `NODE_OPTIONS="--max-old-space-size=1024" npm run build` (compiles all 27
+  routes, including the three `/admin` routes). `tsc --noEmit` and `next lint`
+  are clean.
+
+---
+
 ## [6.1.0] — Stabilization & bug-fix release
 
 **No database schema change. No new migration.** Fully backward-compatible with

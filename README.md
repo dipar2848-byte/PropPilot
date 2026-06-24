@@ -29,6 +29,7 @@ Built with **Next.js 15 (App Router)**, **TypeScript**, **Tailwind CSS**, and
 | **Subscriptions & plans** *(Phase 4)* | Every user is auto-provisioned a **`subscriptions` row** on signup that starts a **7-day Pro trial**. Two plans — **Free** (3 properties, 1 landing page, 10 AI generations/mo, 5 docs/property) and **Pro** (unlimited) — with **limits defined in code** (`src/lib/plans.ts`) so they evolve without a migration. A `getSubscriptionState()` helper resolves the **effective plan** (trial grants full Pro access until it lapses) and is the single source of truth Phase 5 limit enforcement reads from. A **Billing & Plan** page shows current status + plan comparison, and the dashboard surfaces a trial banner. **Owner-only RLS — users can never self-promote to a paid plan** (paid transitions are applied server-side / via the payment webhook in a later phase). |
 | **Plan-limit enforcement & usage UI** *(Phase 5)* | Server-side limit checks (`checkPropertyLimit`, `checkLandingPageLimit`, `checkAiGenerationLimit`) read the **effective plan + real DB counts** before any gated action — the client is never trusted. The UI mirrors that truth: the dashboard shows a **"Plan usage" card** with live `UsageMeter` progress bars (properties, published landing pages, AI generations), the **properties list disables the "Add property" button** and shows an `UpgradePrompt` at limit, **`/properties/new` blocks the form** when the property cap is reached, the **marketing panel disables AI generation** at the monthly cap, and the **landing-pages list surfaces a published-page limit prompt**. Every gate degrades gracefully to a CTA that links to **Billing** — no client-side privilege changes. **No new migration is required** (Phase 5 is purely enforcement + UI on top of the Phase 4 schema). |
 | **Online payments — Cashfree** *(Phase 6)* | Real **Pro upgrades via the Cashfree Payment Gateway**. The client never sets the price or its own plan: an **`UpgradeButton`** asks a server action to create a `payment_orders` row (service-role) + a Cashfree order, then launches the hosted checkout with the returned `payment_session_id`. A subscription is upgraded **only** by the tamper-proof, **idempotent** `apply_subscription_payment` `SECURITY DEFINER` RPC, triggered by either (a) a **signature-verified webhook** (`/api/payments/cashfree/webhook`, HMAC-SHA256 over the raw body) or (b) a **return-URL reconciliation** that re-queries the gateway for the authoritative status. Duplicate webhooks are safe no-ops; the ledger never double-records. **Fully optional** — with no Cashfree env the app runs on the trial and shows a friendly note instead of the button. |
+| **Admin panel** *(Phase 7)* | A platform-admin area at **`/admin`** (overview, **`/admin/users`**, **`/admin/transactions`**) gated **server-side** by `profiles.is_admin` — the entire section is guarded by an admin `layout.tsx` that redirects non-admins before any page renders, and the **Admin** sidebar link only appears for admins. Cross-tenant reads are **declarative**: additive RLS `SELECT` policies (keyed off a `SECURITY DEFINER` `is_platform_admin()` helper) let admins read every user's profile/subscription/transaction/property/lead — owners keep their owner-only policies, so non-admins are completely unaffected. Platform metrics come from an admin-only `admin_platform_stats()` RPC, and admins can **grant/revoke Pro** for any user via the `admin_set_user_plan()` RPC (recorded in the billing ledger as an `adjustment`). Every RPC **re-checks the admin flag itself** — the frontend is never trusted — and **self-promotion to admin remains impossible** (blocked by the Phase 4 `profiles` check policy). |
 | **Public landing pages** | SEO + Open Graph optimized, JSON-LD `RealEstateListing` structured data, image gallery, lead form, and a WhatsApp CTA. Served to anonymous visitors via a `SECURITY DEFINER` RPC that returns **only** public fields — never documents or private details. |
 | **Centralized branding** | A single `APP_CONFIG` (`src/lib/config.ts`) drives the product name everywhere (metadata, dashboard, landing pages, PWA). Rebrand by changing one value / `NEXT_PUBLIC_APP_NAME`. |
 | **PWA** | Web app manifest, service worker (network-first navigation, stale-while-revalidate assets), offline fallback page, generated icons, and an install prompt. |
@@ -62,6 +63,10 @@ Built with **Next.js 15 (App Router)**, **TypeScript**, **Tailwind CSS**, and
    - `supabase/migrations/0007_reconcile_property_images.sql`
    - `supabase/migrations/0008_documents.sql`
    - `supabase/migrations/0009_private_details.sql`
+   - `supabase/migrations/0010_subscriptions.sql`
+   - `supabase/migrations/0011_billing_plans_transactions.sql`
+   - `supabase/migrations/0012_payments_cashfree.sql`
+   - `supabase/migrations/0013_admin.sql`
 3. **Copy `.env.example` → `.env.local`** and fill in your Supabase URL/keys
    (see [Environment Variables](#-environment-variables)). Agent contact details
    are entered in-app (Settings → Profile), **not** via env vars.
@@ -138,6 +143,7 @@ Open **SQL Editor** in your Supabase dashboard and run each file in order:
 | `0010_subscriptions.sql` *(Phase 4)* | Creates the `subscription_plan` + `subscription_status` enums and the `subscriptions` table (one row per user, **owner-only RLS**). **Extends `handle_new_user()`** so every new signup is auto-provisioned a `free`/`trialing` subscription with a 7-day window (+ backfill for existing users). Users may insert only a `free`/`trialing` starter row and have **no UPDATE/DELETE** policy — they can never self-promote to a paid plan (paid transitions are applied server-side). |
 | `0011_billing_plans_transactions.sql` *(Phase 4)* | Creates the `transaction_type` + `transaction_status` enums and three tables: **`plans`** (publicly-readable plan catalog, seeded `free`/`pro`, kept in sync with `src/lib/plans.ts`; service-role writes only), **`transactions`** (append-only billing/credit ledger — owner read-only, **inserts blocked for clients** so a user can never fabricate a payment), and **`usage_counters`** (per-user, per-month credit tracking — owner read-only). Adds the tamper-proof `increment_usage(feature, amount)` `SECURITY DEFINER` RPC for server-side credit deduction. |
 | `0012_payments_cashfree.sql` *(Phase 6)* | Creates the `payment_order_status` enum and the **`payment_orders`** table (one row per checkout attempt — **owner read-only**, all writes via the service role). Adds the **idempotent** `apply_subscription_payment(order_id, cf_payment_id, period_months)` `SECURITY DEFINER` RPC (granted to `service_role` **only**) which, in one transaction, marks the order paid, flips the subscription to `pro`/`active` with a one-month period, and appends a `succeeded` transaction — a duplicate webhook is a safe no-op. |
+| `0013_admin.sql` *(Phase 7)* | Adds the admin-panel machinery. A `SECURITY DEFINER` **`is_platform_admin()`** helper resolves the caller's admin flag, used by **additive cross-tenant `SELECT` policies** on `profiles`, `subscriptions`, `transactions`, `properties`, `leads` and `payment_orders` (admins read all; owners keep owner-only access). Adds the admin-only **`admin_platform_stats()`** RPC (aggregate platform metrics) and **`admin_set_user_plan(user_id, action, period_months)`** RPC (grant/revoke Pro, logged as an `adjustment`). Both RPCs **re-check the admin flag and raise `42501` otherwise**. **Read-only/additive — no historical migration is modified, idempotent and safe to re-run.** |
 
 ### 2. Auth configuration
 
@@ -195,7 +201,8 @@ That's it. No build configuration or custom commands are required.
 │       ├── 0009_private_details.sql       # Private property details (Phase 3)
 │       ├── 0010_subscriptions.sql         # Subscriptions + trial (Phase 4)
 │       ├── 0011_billing_plans_transactions.sql # Plans, transactions, usage credits (Phase 4)
-│       └── 0012_payments_cashfree.sql     # Cashfree orders + idempotent apply RPC (Phase 6)
+│       ├── 0012_payments_cashfree.sql     # Cashfree orders + idempotent apply RPC (Phase 6)
+│       └── 0013_admin.sql                  # Admin RLS read policies + stats/plan RPCs (Phase 7)
 ├── src/
 │   ├── middleware.ts         # Route protection entry
 │   ├── app/
@@ -509,6 +516,43 @@ Some earlier databases were created with `property_images.url` (and without
   `NODE_OPTIONS="--max-old-space-size=1024" npm run build` (verified to compile
   all 24 routes successfully). `tsc --noEmit` and `next lint` are clean.
 
+### Phase 7 — Admin panel
+- **New migration `0013_admin.sql`** (additive, idempotent, no historical
+  migration modified). Adds a `SECURITY DEFINER` **`is_platform_admin()`**
+  helper plus **additive cross-tenant `SELECT` policies** on `profiles`,
+  `subscriptions`, `transactions`, `properties`, `leads` and `payment_orders`
+  (admins read all; owner-only policies remain, so non-admins are unaffected),
+  and two admin-only RPCs: **`admin_platform_stats()`** (aggregate metrics) and
+  **`admin_set_user_plan(user_id, action, period_months)`** (grant/revoke Pro,
+  ledgered as an `adjustment`).
+- **Server-side gating everywhere.** All `/admin/*` routes are guarded by an
+  admin `layout.tsx` that calls `requireAdmin()` and **redirects non-admins to
+  the dashboard** before any admin page renders. The **Admin** sidebar link is
+  shown only when `profiles.is_admin` is true. Both admin RPCs **re-verify the
+  admin flag inside the database** and raise `42501` otherwise — the frontend is
+  never trusted.
+- **Admin features:** an **overview** of platform-wide counts (users, properties,
+  published landing pages, leads, documents, subscription mix, paid orders and
+  total revenue); a **Users** table listing every account with its plan/status
+  and **Grant/Revoke Pro** controls; and a platform-wide **Transactions** feed
+  with the originating user's email.
+- **Security verified on local Postgres:** all 13 migrations apply clean and
+  idempotently; admins can read across tenants and run the RPCs; non-admins are
+  **denied** the RPCs, see **only their own** rows, and **cannot self-promote**
+  to admin (blocked by the Phase 4 `profiles` check policy). Inputs to the
+  grant/revoke action are validated with **Zod**.
+- **No new environment variables.** Phase 7 reuses the existing Supabase service
+  role and the `profiles.is_admin` flag (set an admin once via SQL:
+  `update public.profiles set is_admin = true where email = '<you>';`).
+- **Files:** `supabase/migrations/0013_admin.sql`, `src/lib/data/admin.ts`
+  (admin guard + platform reads), `src/app/(dashboard)/admin/layout.tsx`,
+  `src/app/(dashboard)/admin/page.tsx`,
+  `src/app/(dashboard)/admin/users/page.tsx`,
+  `src/app/(dashboard)/admin/transactions/page.tsx`,
+  `src/app/(dashboard)/admin/actions.ts` (Zod-validated grant/revoke),
+  `src/components/admin/UserPlanControls.tsx`; nav wiring in
+  `src/components/dashboard/Sidebar.tsx`, `Topbar.tsx` and the dashboard layout.
+
 ---
 
 ## ⬆️ Upgrading an existing database
@@ -527,6 +571,14 @@ EXISTS`, enums are guarded, and the storage bucket upsert is conflict-safe):
 0010_subscriptions.sql
 0011_billing_plans_transactions.sql
 0012_payments_cashfree.sql
+0013_admin.sql
+```
+
+To make yourself a platform admin after `0013` is applied, run once in the
+Supabase SQL Editor:
+
+```sql
+update public.profiles set is_admin = true where email = '<your-login-email>';
 ```
 
 Only run the files you haven't applied yet. After running `0007`, the
