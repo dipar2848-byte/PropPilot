@@ -6,7 +6,7 @@ import { SidebarNav } from '@/components/dashboard/Sidebar';
 import { Logo } from '@/components/ui/Logo';
 import { LogoutIcon, MenuIcon, XIcon } from '@/components/ui/Icons';
 
-export function Topbar({ email }: { email: string }) {
+export function Topbar({ email, isAdmin = false }: { email: string; isAdmin?: boolean }) {
   const [open, setOpen] = useState(false);
   const initial = email.charAt(0).toUpperCase();
 
@@ -60,7 +60,7 @@ export function Topbar({ email }: { email: string }) {
             >
               <XIcon className="h-5 w-5" />
             </button>
-            <SidebarNav onNavigate={() => setOpen(false)} />
+            <SidebarNav onNavigate={() => setOpen(false)} isAdmin={isAdmin} />
           </div>
         </div>
       )}
