@@ -3,6 +3,15 @@
 import { useTransition, useState } from 'react';
 import type { MarketingAsset } from '@/lib/types';
 import { generateMarketingAction } from '@/app/(dashboard)/properties/actions';
+import {
+  KIT_TONES,
+  KIT_LANGUAGES,
+  TONE_LABELS,
+  LANGUAGE_LABELS,
+  DEFAULT_KIT_OPTIONS,
+  type KitTone,
+  type KitLanguage,
+} from '@/lib/ai/types';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { SparklesIcon, SpinnerIcon } from '@/components/ui/Icons';
 import { useToast } from '@/components/ui/Toast';
@@ -42,12 +51,14 @@ export function MarketingPanel({
   aiUsageLabel?: string;
 }) {
   const [pending, startTransition] = useTransition();
-  const [data, setData] = useState<MarketingAsset | null>(marketing);
+  const [data] = useState<MarketingAsset | null>(marketing);
+  const [tone, setTone] = useState<KitTone>(DEFAULT_KIT_OPTIONS.tone);
+  const [language, setLanguage] = useState<KitLanguage>(DEFAULT_KIT_OPTIONS.language);
   const { toast } = useToast();
 
   function generate() {
     startTransition(async () => {
-      const res = await generateMarketingAction(propertyId);
+      const res = await generateMarketingAction(propertyId, { tone, language });
       if (res.error) {
         toast(res.error, 'error');
         return;
@@ -58,6 +69,41 @@ export function MarketingPanel({
     });
   }
 
+  const optionControls = (
+    <div className="flex flex-wrap items-end gap-3">
+      <label className="flex flex-col text-xs font-medium text-ink-500">
+        Tone
+        <select
+          value={tone}
+          onChange={(e) => setTone(e.target.value as KitTone)}
+          disabled={pending}
+          className="mt-1 rounded-lg border border-ink-200 bg-white px-2.5 py-1.5 text-sm text-ink-900 disabled:opacity-60"
+        >
+          {KIT_TONES.map((t) => (
+            <option key={t} value={t}>
+              {TONE_LABELS[t]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex flex-col text-xs font-medium text-ink-500">
+        Language
+        <select
+          value={language}
+          onChange={(e) => setLanguage(e.target.value as KitLanguage)}
+          disabled={pending}
+          className="mt-1 rounded-lg border border-ink-200 bg-white px-2.5 py-1.5 text-sm text-ink-900 disabled:opacity-60"
+        >
+          {KIT_LANGUAGES.map((l) => (
+            <option key={l} value={l}>
+              {LANGUAGE_LABELS[l]}
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
+  );
+
   if (!data) {
     return (
       <div className="card flex flex-col items-center justify-center px-6 py-12 text-center">
@@ -67,8 +113,9 @@ export function MarketingPanel({
         <h3 className="mt-5 text-lg font-semibold text-ink-900">No marketing kit yet</h3>
         <p className="mt-1 max-w-sm text-sm text-ink-500">
           Generate a complete set of marketing copy — listing descriptions and social posts —
-          tailored to this property.
+          tailored to this property. Choose a tone and language below.
         </p>
+        <div className="mt-5">{optionControls}</div>
         <button
           onClick={generate}
           disabled={pending || aiDisabled}
@@ -92,7 +139,8 @@ export function MarketingPanel({
             Generated with {data.provider === 'template' ? 'PropPilot engine' : data.provider}.
           </p>
         </div>
-        <div className="flex flex-col items-end gap-1">
+        <div className="flex flex-col items-end gap-2">
+          {optionControls}
           <button
             onClick={generate}
             disabled={pending || aiDisabled}

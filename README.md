@@ -29,6 +29,7 @@ Built with **Next.js 15 (App Router)**, **TypeScript**, **Tailwind CSS**, and
 | **Subscriptions & plans** *(Phase 4)* | Every user is auto-provisioned a **`subscriptions` row** on signup that starts a **7-day Pro trial**. Two plans — **Free** (3 properties, 1 landing page, 10 AI generations/mo, 5 docs/property) and **Pro** (unlimited) — with **limits defined in code** (`src/lib/plans.ts`) so they evolve without a migration. A `getSubscriptionState()` helper resolves the **effective plan** (trial grants full Pro access until it lapses) and is the single source of truth Phase 5 limit enforcement reads from. A **Billing & Plan** page shows current status + plan comparison, and the dashboard surfaces a trial banner. **Owner-only RLS — users can never self-promote to a paid plan** (paid transitions are applied server-side / via the payment webhook in a later phase). |
 | **Plan-limit enforcement & usage UI** *(Phase 5)* | Server-side limit checks (`checkPropertyLimit`, `checkLandingPageLimit`, `checkAiGenerationLimit`) read the **effective plan + real DB counts** before any gated action — the client is never trusted. The UI mirrors that truth: the dashboard shows a **"Plan usage" card** with live `UsageMeter` progress bars (properties, published landing pages, AI generations), the **properties list disables the "Add property" button** and shows an `UpgradePrompt` at limit, **`/properties/new` blocks the form** when the property cap is reached, the **marketing panel disables AI generation** at the monthly cap, and the **landing-pages list surfaces a published-page limit prompt**. Every gate degrades gracefully to a CTA that links to **Billing** — no client-side privilege changes. **No new migration is required** (Phase 5 is purely enforcement + UI on top of the Phase 4 schema). |
 | **Online payments — Cashfree** *(Phase 6)* | Real **Pro upgrades via the Cashfree Payment Gateway**. The client never sets the price or its own plan: an **`UpgradeButton`** asks a server action to create a `payment_orders` row (service-role) + a Cashfree order, then launches the hosted checkout with the returned `payment_session_id`. A subscription is upgraded **only** by the tamper-proof, **idempotent** `apply_subscription_payment` `SECURITY DEFINER` RPC, triggered by either (a) a **signature-verified webhook** (`/api/payments/cashfree/webhook`, HMAC-SHA256 over the raw body) or (b) a **return-URL reconciliation** that re-queries the gateway for the authoritative status. Duplicate webhooks are safe no-ops; the ledger never double-records. **Fully optional** — with no Cashfree env the app runs on the trial and shows a friendly note instead of the button. |
+| **AI Kit — tone & language** *(Phase 8)* | The marketing-kit generator now takes **tone** (Professional, Luxury, Friendly, Concise, Enthusiastic) and **language** (English plus Hindi, Marathi, Tamil, Telugu, Bengali, Gujarati, Kannada) controls, surfaced as selectors in the marketing panel. The choices are **validated/normalised server-side** (never trusted from the client), woven into the shared prompt for all LLM providers (OpenAI / Anthropic / Gemini), and the deterministic **template engine** adapts its tone too — so the app still works out of the box. Non-English copy is produced by the LLM in the **native script**; with no LLM configured a non-English request gracefully degrades to English template copy. **No schema change and no new environment variables** — tone/language are generation-time inputs, and the same plan-based monthly AI-generation limit + tamper-proof usage metering still apply. |
 | **Admin panel** *(Phase 7)* | A platform-admin area at **`/admin`** (overview, **`/admin/users`**, **`/admin/transactions`**) gated **server-side** by `profiles.is_admin` — the entire section is guarded by an admin `layout.tsx` that redirects non-admins before any page renders, and the **Admin** sidebar link only appears for admins. Cross-tenant reads are **declarative**: additive RLS `SELECT` policies (keyed off a `SECURITY DEFINER` `is_platform_admin()` helper) let admins read every user's profile/subscription/transaction/property/lead — owners keep their owner-only policies, so non-admins are completely unaffected. Platform metrics come from an admin-only `admin_platform_stats()` RPC, and admins can **grant/revoke Pro** for any user via the `admin_set_user_plan()` RPC (recorded in the billing ledger as an `adjustment`). Every RPC **re-checks the admin flag itself** — the frontend is never trusted — and **self-promotion to admin remains impossible** (blocked by the Phase 4 `profiles` check policy). |
 | **Public landing pages** | SEO + Open Graph optimized, JSON-LD `RealEstateListing` structured data, image gallery, lead form, and a WhatsApp CTA. Served to anonymous visitors via a `SECURITY DEFINER` RPC that returns **only** public fields — never documents or private details. |
 | **Centralized branding** | A single `APP_CONFIG` (`src/lib/config.ts`) drives the product name everywhere (metadata, dashboard, landing pages, PWA). Rebrand by changing one value / `NEXT_PUBLIC_APP_NAME`. |
@@ -265,11 +266,71 @@ the deterministic template engine so generation **always succeeds**.
 ## 🧪 Scripts
 
 ```bash
-npm run dev          # Start dev server
-npm run build        # Production build
-npm run start        # Start production server
-npm run lint         # ESLint
-npm run type-check   # TypeScript (tsc --noEmit)
+npm run dev            # Start dev server
+npm run build          # Production build
+npm run start          # Start production server
+npm run lint           # ESLint
+npm run type-check     # TypeScript (tsc --noEmit)
+npm run test           # Playwright E2E suite (alias: test:e2e)
+npm run test:e2e:ui    # Playwright interactive UI runner
+npm run test:e2e:report# Open the last HTML report
+```
+
+---
+
+## 📈 Observability & Testing (Phase 8)
+
+### Error monitoring — Sentry
+
+PropPilot is instrumented with the official **`@sentry/nextjs`** SDK across the
+**client, server and edge** runtimes:
+
+- `sentry.server.config.ts` / `sentry.edge.config.ts` — runtime init for the
+  Node and Edge runtimes, loaded from `src/instrumentation.ts`.
+- `src/instrumentation-client.ts` — browser init (with Session Replay on error).
+- `src/instrumentation.ts` — `register()` + `onRequestError` (captures
+  server-side render/route errors).
+- `next.config.mjs` — wrapped with `withSentryConfig` for source-map upload and
+  the ad-blocker-resistant tunnel route. The webpack wrapper is **only** applied
+  when Sentry is configured (DSN + org/project/token) or `SENTRY_WEBPACK_PLUGIN=1`
+  is set, keeping memory-constrained builds lightweight.
+
+**All Sentry credentials come from environment variables — nothing is
+hardcoded.** Monitoring is a no-op until you set the DSN, so local/dev runs are
+unaffected:
+
+```bash
+NEXT_PUBLIC_SENTRY_DSN=          # public DSN; blank disables the SDK
+SENTRY_ORG=                      # build-time only (source-map upload)
+SENTRY_PROJECT=                  # build-time only
+SENTRY_AUTH_TOKEN=               # build-time only — a secret; never commit
+SENTRY_ENVIRONMENT=              # optional env tag (defaults to NODE_ENV)
+NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=0.1
+```
+
+### End-to-end tests — Playwright
+
+Critical production flows are covered by a **Playwright** suite in `e2e/`,
+configured via `playwright.config.ts` (boots `next start` automatically):
+
+- **Public landing pages** — home/marketing rendering, CTAs, 404 for unknown
+  public slugs, offline fallback (`e2e/landing.spec.ts`).
+- **Authentication** — login/signup/forgot-password UI, validation, invalid-
+  credential handling, no silent auth (`e2e/auth.spec.ts`).
+- **Auth boundary for protected flows** — property CRUD, AI generation, billing,
+  landing-page management and the **admin dashboard** all redirect
+  unauthenticated visitors to `/login` (with `?redirect=` preserved)
+  (`e2e/protected-routes.spec.ts`).
+
+The suite is **backend-independent and deterministic** — it uses
+placeholder Supabase env values so it runs green in CI without a live database,
+while still exercising each flow's entry point and security enforcement. CI is
+defined in **`ci-templates/playwright.yml`** — move it to
+`.github/workflows/playwright.yml` to enable it (see `ci-templates/README.md`).
+It runs build + E2E on every push/PR, caches browsers and uploads the report.
+
+```bash
+npm run test          # build first (npm run build), then run the suite
 ```
 
 ---
@@ -552,6 +613,29 @@ Some earlier databases were created with `property_images.url` (and without
   `src/app/(dashboard)/admin/actions.ts` (Zod-validated grant/revoke),
   `src/components/admin/UserPlanControls.tsx`; nav wiring in
   `src/components/dashboard/Sidebar.tsx`, `Topbar.tsx` and the dashboard layout.
+
+### Phase 8 — AI Kit (tone & language)
+- **No schema change / no new migration / no new environment variables.** Tone
+  and language are **generation-time inputs**, not stored state.
+- **Tone control:** Professional, Luxury, Friendly, Concise, Enthusiastic. Each
+  tone carries short style guidance injected into the LLM prompt, and the
+  deterministic **template engine** also adapts its opening copy per tone.
+- **Language control:** English plus Hindi, Marathi, Tamil, Telugu, Bengali,
+  Gujarati and Kannada. For non-English the LLM is instructed to write entirely
+  in the **native script** (proper nouns preserved). Without a configured LLM,
+  a non-English request degrades to English template copy and reports the
+  `template` provider.
+- **Server-trust boundary preserved:** the marketing panel sends the selected
+  `{ tone, language }`, but `generateMarketingAction` **normalises/validates**
+  them server-side via `normaliseKitOptions()` (unknown values fall back to the
+  defaults). The existing rate limit, plan-based monthly AI-generation cap and
+  tamper-proof usage metering are unchanged.
+- **Files:** `src/lib/ai/types.ts` (tone/language catalogues + `KitOptions` +
+  `normaliseKitOptions`), `src/lib/ai/prompt.ts` (tone/language directives),
+  `src/lib/ai/service.ts` and `src/lib/ai/providers/{template,openai,anthropic,gemini}.ts`
+  (options threaded through), `src/app/(dashboard)/properties/actions.ts`
+  (validated options), `src/components/marketing/MarketingPanel.tsx`
+  (tone + language selectors).
 
 ---
 

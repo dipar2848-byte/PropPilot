@@ -1,5 +1,5 @@
 import type { Property } from '@/lib/types';
-import type { MarketingKit, MarketingProvider } from '@/lib/ai/types';
+import { DEFAULT_KIT_OPTIONS, type KitOptions, type MarketingKit, type MarketingProvider } from '@/lib/ai/types';
 import { buildPrompt, parseKitJson } from '@/lib/ai/prompt';
 
 export class OpenAIProvider implements MarketingProvider {
@@ -10,8 +10,8 @@ export class OpenAIProvider implements MarketingProvider {
     private readonly model: string,
   ) {}
 
-  async generate(property: Property): Promise<MarketingKit> {
-    const { system, user } = buildPrompt(property);
+  async generate(property: Property, options: KitOptions = DEFAULT_KIT_OPTIONS): Promise<MarketingKit> {
+    const { system, user } = buildPrompt(property, options);
 
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',

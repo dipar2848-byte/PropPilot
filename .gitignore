@@ -41,3 +41,9 @@ supervisord.log
 supervisord.pid
 supervisor.sock
 *.log
+
+# Playwright
+/test-results/
+/playwright-report/
+/playwright/.cache/
+/blob-report/

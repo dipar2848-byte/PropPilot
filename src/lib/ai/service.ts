@@ -1,5 +1,11 @@
 import type { Property } from '@/lib/types';
-import type { MarketingKitResult, MarketingProvider } from '@/lib/ai/types';
+import {
+  DEFAULT_KIT_OPTIONS,
+  normaliseKitOptions,
+  type KitOptions,
+  type MarketingKitResult,
+  type MarketingProvider,
+} from '@/lib/ai/types';
 import { getAiConfig } from '@/lib/env';
 import { TemplateProvider } from '@/lib/ai/providers/template';
 import { OpenAIProvider } from '@/lib/ai/providers/openai';
@@ -38,15 +44,23 @@ const templateProvider = new TemplateProvider();
  * Generates a full marketing kit for a property. Always succeeds: if the
  * configured LLM provider is unavailable or errors, it transparently falls
  * back to the high-quality template engine.
+ *
+ * `options` (tone + language, Phase 8) steer the copy. The deterministic
+ * template engine is English-only, so a non-English request without a working
+ * LLM provider degrades to English template copy (and reports `template`).
  */
-export async function generateMarketingKit(property: Property): Promise<MarketingKitResult> {
+export async function generateMarketingKit(
+  property: Property,
+  optionsInput?: Partial<KitOptions> | null,
+): Promise<MarketingKitResult> {
+  const options = optionsInput ? normaliseKitOptions(optionsInput) : DEFAULT_KIT_OPTIONS;
   const provider = resolveProvider();
 
   if (provider) {
     try {
-      const kit = await provider.generate(property);
+      const kit = await provider.generate(property, options);
       // Guard against an LLM returning empty fields — backfill from template.
-      const fallback = await templateProvider.generate(property);
+      const fallback = await templateProvider.generate(property, options);
       return {
         long_description: kit.long_description || fallback.long_description,
         short_description: kit.short_description || fallback.short_description,
@@ -61,6 +75,6 @@ export async function generateMarketingKit(property: Property): Promise<Marketin
     }
   }
 
-  const kit = await templateProvider.generate(property);
+  const kit = await templateProvider.generate(property, options);
   return { ...kit, provider: templateProvider.name };
 }

@@ -1,5 +1,5 @@
 import type { Property } from '@/lib/types';
-import type { MarketingKit, MarketingProvider } from '@/lib/ai/types';
+import { DEFAULT_KIT_OPTIONS, type KitOptions, type MarketingKit, type MarketingProvider } from '@/lib/ai/types';
 import { buildPrompt, parseKitJson } from '@/lib/ai/prompt';
 import { normaliseKit } from '@/lib/ai/providers/openai';
 
@@ -11,8 +11,8 @@ export class AnthropicProvider implements MarketingProvider {
     private readonly model: string,
   ) {}
 
-  async generate(property: Property): Promise<MarketingKit> {
-    const { system, user } = buildPrompt(property);
+  async generate(property: Property, options: KitOptions = DEFAULT_KIT_OPTIONS): Promise<MarketingKit> {
+    const { system, user } = buildPrompt(property, options);
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
