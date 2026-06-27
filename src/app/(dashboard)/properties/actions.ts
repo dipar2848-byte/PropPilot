@@ -13,6 +13,7 @@ import {
 import { propertySchema, parseAmenities } from '@/lib/validation';
 import { sanitiseFileName, buildSlug } from '@/lib/utils';
 import { generateMarketingKit } from '@/lib/ai/service';
+import { normaliseKitOptions, type KitOptions } from '@/lib/ai/types';
 import { rateLimit } from '@/lib/rate-limit';
 import { publicEnv } from '@/lib/env';
 
@@ -368,8 +369,12 @@ export interface MarketingActionState {
 
 export async function generateMarketingAction(
   propertyId: string,
+  options?: Partial<KitOptions> | null,
 ): Promise<MarketingActionState> {
   const { supabase, user } = await requireUser();
+
+  // Validate/normalise tone + language server-side (never trust the client).
+  const kitOptions = normaliseKitOptions(options);
 
   const limited = rateLimit(`ai:${user.id}`, 15, 60_000);
   if (!limited.success) {
@@ -394,7 +399,7 @@ export async function generateMarketingAction(
     .single();
   if (error || !property) return { error: 'Property not found.' };
 
-  const kit = await generateMarketingKit(property);
+  const kit = await generateMarketingKit(property, kitOptions);
 
   const { error: upsertError } = await supabase.from('marketing_assets').upsert(
     {

@@ -1,6 +1,29 @@
 import type { Property } from '@/lib/types';
-import type { MarketingKit, MarketingProvider } from '@/lib/ai/types';
+import {
+  DEFAULT_KIT_OPTIONS,
+  type KitOptions,
+  type KitTone,
+  type MarketingKit,
+  type MarketingProvider,
+} from '@/lib/ai/types';
 import { propertyTypeLabel, formatPrice, formatArea } from '@/lib/utils';
+
+/** Tone-specific opening flourish for the template engine (English only). */
+function toneOpener(tone: KitTone, title: string, typeLabel: string, loc: string): string {
+  switch (tone) {
+    case 'luxury':
+      return `Presenting ${title} — an exceptional ${typeLabel.toLowerCase()}${loc} where refined design meets an elevated lifestyle.`;
+    case 'friendly':
+      return `Say hello to ${title}${loc} — a lovely ${typeLabel.toLowerCase()} that's ready to welcome you home.`;
+    case 'concise':
+      return `${title}${loc}: a well-appointed ${typeLabel.toLowerCase()} offering great value.`;
+    case 'enthusiastic':
+      return `You'll love ${title}${loc} — a standout ${typeLabel.toLowerCase()} packed with everything you've been looking for!`;
+    case 'professional':
+    default:
+      return `Welcome to ${title} — a remarkable ${typeLabel.toLowerCase()}${loc} that blends comfort, style and everyday convenience.`;
+  }
+}
 
 function highlights(property: Property): string[] {
   const out: string[] = [];
@@ -28,7 +51,10 @@ function locationPhrase(property: Property): string {
 export class TemplateProvider implements MarketingProvider {
   readonly name = 'template';
 
-  async generate(property: Property): Promise<MarketingKit> {
+  async generate(
+    property: Property,
+    options: KitOptions = DEFAULT_KIT_OPTIONS,
+  ): Promise<MarketingKit> {
     const typeLabel = propertyTypeLabel(property.property_type);
     const loc = locationPhrase(property);
     const price = property.price > 0 ? formatPrice(property.price) : null;
@@ -46,7 +72,7 @@ export class TemplateProvider implements MarketingProvider {
     const agentNotes = property.description ? ` ${property.description.trim()}` : '';
 
     const long_description = [
-      `Welcome to ${property.title} — a remarkable ${typeLabel.toLowerCase()}${loc} that blends comfort, style and everyday convenience.`,
+      toneOpener(options.tone, property.title, typeLabel, loc),
       `Step inside to discover ${hlSentence}, all crafted to elevate the way you live.`,
       amenityLine,
       agentNotes,
