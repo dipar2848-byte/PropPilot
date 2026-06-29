@@ -7,6 +7,36 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [9.0.0] — Data export (Phase 9)
+
+Lets agents export their workspace data as **CSV** — no schema change, no
+migration, no new environment variables.
+
+### Added
+- **CSV export for leads and properties** via owner-scoped Route Handlers:
+  - `GET /api/export/leads` — every lead in the workspace, annotated with the
+    originating property title, status, source and timestamps.
+  - `GET /api/export/properties` — the full property catalogue (type, status,
+    location, price, beds/baths, areas, amenities, timestamps).
+  - Both require an authenticated session (clean `401` otherwise) and are
+    owner-scoped through RLS **plus** an explicit `user_id` filter — a user can
+    only export their own data. Private documents and internal/commission
+    details are never included.
+- **Export dashboard** at `/export` with per-entity cards showing live record
+  counts and a download button (fetch → blob, with pending + error states), plus
+  an **Export** item in the sidebar navigation.
+- **Dependency-free CSV serializer** (`src/lib/export/csv.ts`): RFC-4180 quoting
+  + CRLF line endings, a UTF-8 BOM so non-English text renders in spreadsheet
+  apps, and CSV-injection hardening (neutralises leading `= + - @`). Dated
+  filenames like `proppilot-leads-YYYY-MM-DD.csv`.
+
+### Tests
+- Playwright coverage extended to the export surfaces: `/export` redirects
+  unauthenticated visitors to `/login`, and both export APIs reject
+  unauthenticated requests (401 / redirect). Suite now **26 tests, all green**.
+
+---
+
 ## [8.1.0] — Observability & E2E testing (Phase 8)
 
 Adds production-grade **error monitoring** and an **end-to-end test suite** as
