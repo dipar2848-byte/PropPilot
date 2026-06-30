@@ -13,6 +13,7 @@ import {
   SettingsIcon,
   CreditCardIcon,
   ShieldIcon,
+  DownloadIcon,
 } from '@/components/ui/Icons';
 import { cn } from '@/lib/utils';
 import { APP_CONFIG } from '@/lib/config';
@@ -23,6 +24,7 @@ const nav = [
   { href: '/search', label: 'Search', icon: SearchIcon },
   { href: '/marketing', label: 'Marketing Kits', icon: SparklesIcon },
   { href: '/landing-pages', label: 'Landing Pages', icon: GlobeIcon },
+  { href: '/export', label: 'Export', icon: DownloadIcon },
   { href: '/billing', label: 'Billing', icon: CreditCardIcon },
   { href: '/settings', label: 'Settings', icon: SettingsIcon },
 ];

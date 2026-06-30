@@ -30,6 +30,23 @@ test.describe('Auth boundary — protected production flows', () => {
     await expectRedirectToLogin(page, '/landing-pages');
   });
 
+  test('data export page requires auth', async ({ page }) => {
+    await expectRedirectToLogin(page, '/export');
+  });
+
+  test('leads CSV export API rejects unauthenticated requests (401)', async ({ request }) => {
+    const res = await request.get('/api/export/leads', { maxRedirects: 0 });
+    // Either a 401 from the handler or a 3xx redirect to /login from middleware.
+    expect([301, 302, 303, 307, 308, 401]).toContain(res.status());
+  });
+
+  test('properties CSV export API rejects unauthenticated requests (401)', async ({
+    request,
+  }) => {
+    const res = await request.get('/api/export/properties', { maxRedirects: 0 });
+    expect([301, 302, 303, 307, 308, 401]).toContain(res.status());
+  });
+
   test('billing requires auth', async ({ page }) => {
     await expectRedirectToLogin(page, '/billing');
   });

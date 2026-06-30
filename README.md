@@ -31,6 +31,7 @@ Built with **Next.js 15 (App Router)**, **TypeScript**, **Tailwind CSS**, and
 | **Online payments — Cashfree** *(Phase 6)* | Real **Pro upgrades via the Cashfree Payment Gateway**. The client never sets the price or its own plan: an **`UpgradeButton`** asks a server action to create a `payment_orders` row (service-role) + a Cashfree order, then launches the hosted checkout with the returned `payment_session_id`. A subscription is upgraded **only** by the tamper-proof, **idempotent** `apply_subscription_payment` `SECURITY DEFINER` RPC, triggered by either (a) a **signature-verified webhook** (`/api/payments/cashfree/webhook`, HMAC-SHA256 over the raw body) or (b) a **return-URL reconciliation** that re-queries the gateway for the authoritative status. Duplicate webhooks are safe no-ops; the ledger never double-records. **Fully optional** — with no Cashfree env the app runs on the trial and shows a friendly note instead of the button. |
 | **AI Kit — tone & language** *(Phase 8)* | The marketing-kit generator now takes **tone** (Professional, Luxury, Friendly, Concise, Enthusiastic) and **language** (English plus Hindi, Marathi, Tamil, Telugu, Bengali, Gujarati, Kannada) controls, surfaced as selectors in the marketing panel. The choices are **validated/normalised server-side** (never trusted from the client), woven into the shared prompt for all LLM providers (OpenAI / Anthropic / Gemini), and the deterministic **template engine** adapts its tone too — so the app still works out of the box. Non-English copy is produced by the LLM in the **native script**; with no LLM configured a non-English request gracefully degrades to English template copy. **No schema change and no new environment variables** — tone/language are generation-time inputs, and the same plan-based monthly AI-generation limit + tamper-proof usage metering still apply. |
 | **Admin panel** *(Phase 7)* | A platform-admin area at **`/admin`** (overview, **`/admin/users`**, **`/admin/transactions`**) gated **server-side** by `profiles.is_admin` — the entire section is guarded by an admin `layout.tsx` that redirects non-admins before any page renders, and the **Admin** sidebar link only appears for admins. Cross-tenant reads are **declarative**: additive RLS `SELECT` policies (keyed off a `SECURITY DEFINER` `is_platform_admin()` helper) let admins read every user's profile/subscription/transaction/property/lead — owners keep their owner-only policies, so non-admins are completely unaffected. Platform metrics come from an admin-only `admin_platform_stats()` RPC, and admins can **grant/revoke Pro** for any user via the `admin_set_user_plan()` RPC (recorded in the billing ledger as an `adjustment`). Every RPC **re-checks the admin flag itself** — the frontend is never trusted — and **self-promotion to admin remains impossible** (blocked by the Phase 4 `profiles` check policy). |
+| **Data export (CSV)** *(Phase 9)* | Export your **leads** and **properties** to CSV from a dedicated **`/export`** dashboard. Owner-scoped Route Handlers (`/api/export/leads`, `/api/export/properties`) require auth and filter by `user_id` on top of RLS — you can only ever export your own data, and **private documents / internal notes are never included**. The serializer is dependency-free and **RFC-4180** compliant with a UTF-8 BOM (so Hindi/Marathi/etc. text renders in Excel & Sheets) and **CSV-injection hardening**. No schema change, no migration, no new env vars. |
 | **Public landing pages** | SEO + Open Graph optimized, JSON-LD `RealEstateListing` structured data, image gallery, lead form, and a WhatsApp CTA. Served to anonymous visitors via a `SECURITY DEFINER` RPC that returns **only** public fields — never documents or private details. |
 | **Centralized branding** | A single `APP_CONFIG` (`src/lib/config.ts`) drives the product name everywhere (metadata, dashboard, landing pages, PWA). Rebrand by changing one value / `NEXT_PUBLIC_APP_NAME`. |
 | **PWA** | Web app manifest, service worker (network-first navigation, stale-while-revalidate assets), offline fallback page, generated icons, and an install prompt. |
@@ -636,6 +637,28 @@ Some earlier databases were created with `property_images.url` (and without
   (options threaded through), `src/app/(dashboard)/properties/actions.ts`
   (validated options), `src/components/marketing/MarketingPanel.tsx`
   (tone + language selectors).
+
+### Phase 9 — Data export (CSV)
+- **No schema change / no new migration / no new environment variables.** Export
+  reads existing tables through the RLS-bound client.
+- **Endpoints:** `GET /api/export/leads` and `GET /api/export/properties` (Node
+  runtime, `force-dynamic`, `no-store`). Each enforces an authenticated session
+  (clean `401` otherwise) and fetches data **owner-scoped** — RLS **plus** an
+  explicit `user_id` filter. Responses set `Content-Type: text/csv` and a
+  `Content-Disposition: attachment` with a dated filename.
+- **What's exported:** leads (name, phone, message, status, source, originating
+  property title, timestamps) and properties (title, type, status, location,
+  price, beds/baths, carpet/built-up area, amenities, timestamps). **Never**
+  private documents or internal/commission details.
+- **Serializer:** `src/lib/export/csv.ts` — dependency-free, RFC-4180 quoting,
+  CRLF line endings, a UTF-8 BOM for correct non-English rendering in
+  spreadsheet apps, and CSV-injection hardening (neutralises leading
+  `= + - @`).
+- **Files:** `src/lib/export/{csv,data,columns,response}.ts`,
+  `src/app/api/export/{leads,properties}/route.ts`,
+  `src/app/(dashboard)/export/page.tsx`,
+  `src/components/export/ExportCard.tsx`, and an **Export** link in
+  `src/components/dashboard/Sidebar.tsx`.
 
 ---
 

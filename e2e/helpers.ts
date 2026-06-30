@@ -11,6 +11,7 @@ export const PROTECTED_ROUTES = [
   '/properties/new',
   '/marketing',
   '/landing-pages',
+  '/export',
   '/billing',
   '/search',
   '/settings',
